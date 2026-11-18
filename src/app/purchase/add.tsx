@@ -1,10 +1,12 @@
 
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { File, Directory, Paths } from 'expo-file-system';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
+    Alert,
     Image,
     Pressable,
     ScrollView,
@@ -14,29 +16,113 @@ import {
     View,
 } from 'react-native';
 
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+
+import type { Purchase, PurchasePriority } from '../../types/purchase';
+import {
+    getPurchases,
+    savePurchases,
+} from '../../services/purchaseStorage';
 
 const MAX_IMAGES = 5;
 
 export default function AddPurchaseScreen() {
-    // Purchase information
+    const { id } = useLocalSearchParams<{ id?: string }>();
+
+    const purchaseId = Array.isArray(id) ? id[0] : id;
+    const isEditing = Boolean(purchaseId);
+
+    const [originalPurchase, setOriginalPurchase] =
+        useState<Purchase | null>(null);
+
+    const [isLoading, setIsLoading] = useState(isEditing);
+
     const [purchaseName, setPurchaseName] = useState('');
     const [estimatedPrice, setEstimatedPrice] = useState('');
+    const [priority, setPriority] =
+        useState<PurchasePriority>('Medium');
 
-    // Purchase priority
-    const [priority, setPriority] = useState('Medium');
-
-    // Planned purchase date
     const [plannedDate, setPlannedDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
 
-    // Initial savings
     const [savedAmount, setSavedAmount] = useState('');
-
-    // Product images
     const [images, setImages] = useState<string[]>([]);
+    const [isSaving, setIsSaving] = useState(false);
 
-    // Open gallery and select multiple images
+    // Load existing purchase when editing
+    useEffect(() => {
+        if (!purchaseId) {
+            setIsLoading(false);
+            return;
+        }
+
+        let isActive = true;
+
+        const loadPurchase = async () => {
+            try {
+                const purchases = await getPurchases();
+
+                const existingPurchase = purchases.find(
+                    (purchase) => purchase.id === purchaseId
+                );
+
+                if (!existingPurchase) {
+                    Alert.alert(
+                        'Purchase Not Found',
+                        'This purchase could not be found.',
+                        [
+                            {
+                                text: 'OK',
+                                onPress: () => router.back(),
+                            },
+                        ]
+                    );
+                    return;
+                }
+
+                if (isActive) {
+                    setOriginalPurchase(existingPurchase);
+                    setPurchaseName(existingPurchase.name);
+                    setEstimatedPrice(
+                        existingPurchase.estimatedPrice.toString()
+                    );
+                    setPriority(existingPurchase.priority);
+                    setPlannedDate(
+                        new Date(existingPurchase.plannedDate)
+                    );
+                    setSavedAmount(
+                        existingPurchase.savedAmount.toString()
+                    );
+                    setImages(existingPurchase.images ?? []);
+                }
+            } catch (error) {
+                console.error('Error loading purchase:', error);
+
+                Alert.alert(
+                    'Loading Failed',
+                    'Could not load this purchase. Please try again.',
+                    [
+                        {
+                            text: 'OK',
+                            onPress: () => router.back(),
+                        },
+                    ]
+                );
+            } finally {
+                if (isActive) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        loadPurchase();
+
+        return () => {
+            isActive = false;
+        };
+    }, [purchaseId]);
+
+    // Select multiple images
     const pickImages = async () => {
         const remainingSlots = MAX_IMAGES - images.length;
 
@@ -66,7 +152,7 @@ export default function AddPurchaseScreen() {
         }
     };
 
-    // Remove an individual image
+    // Remove an image
     const removeImage = (indexToRemove: number) => {
         setImages((currentImages) =>
             currentImages.filter(
@@ -75,10 +161,228 @@ export default function AddPurchaseScreen() {
         );
     };
 
+    // Save newly selected images permanently.
+    // Existing images are kept in their current storage locations.
+    const saveImagesPermanently = async (
+        currentPurchaseId: string
+    ): Promise<string[]> => {
+        const imageDirectory = new Directory(
+            Paths.document,
+            'purchase-images'
+        );
+
+        imageDirectory.create({
+            idempotent: true,
+            intermediates: true,
+        });
+
+        const permanentImages: string[] = [];
+
+        for (let index = 0; index < images.length; index++) {
+            const imageUri = images[index];
+
+            const isExistingImage =
+                originalPurchase?.images.includes(imageUri) ?? false;
+
+            if (isExistingImage) {
+                permanentImages.push(imageUri);
+                continue;
+            }
+
+            const originalFile = new File(imageUri);
+
+            const extensionMatch = imageUri
+                .split('?')[0]
+                .match(/\.[a-zA-Z0-9]+$/);
+
+            const extension = extensionMatch
+                ? extensionMatch[0]
+                : '.jpg';
+
+            const destinationFile = new File(
+                imageDirectory,
+                `${currentPurchaseId}-${Date.now()}-${index}${extension}`
+            );
+
+            await originalFile.copy(destinationFile);
+
+            permanentImages.push(destinationFile.uri);
+        }
+
+        return permanentImages;
+    };
+
+    // Validate and save purchase
+    const handleSave = async () => {
+        const name = purchaseName.trim();
+        const price = Number(estimatedPrice);
+
+        const savings = savedAmount.trim() === ''
+            ? 0
+            : Number(savedAmount);
+
+        if (!name) {
+            Alert.alert(
+                'Missing Name',
+                'Please enter the purchase name.'
+            );
+            return;
+        }
+
+        if (
+            !estimatedPrice.trim() ||
+            !Number.isFinite(price) ||
+            price <= 0
+        ) {
+            Alert.alert(
+                'Invalid Price',
+                'Please enter a valid estimated price greater than zero.'
+            );
+            return;
+        }
+
+        if (!Number.isFinite(savings) || savings < 0) {
+            Alert.alert(
+                'Invalid Savings',
+                'Please enter a valid savings amount.'
+            );
+            return;
+        }
+
+        if (savings > price) {
+            Alert.alert(
+                'Invalid Savings',
+                'Your savings cannot be greater than the estimated price.'
+            );
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const selectedDate = new Date(plannedDate);
+        selectedDate.setHours(0, 0, 0, 0);
+
+        const originalDate = originalPurchase
+            ? new Date(originalPurchase.plannedDate)
+            : null;
+
+        if (
+            selectedDate < today &&
+            (!originalDate ||
+                selectedDate.getTime() !==
+                new Date(
+                    originalDate.setHours(0, 0, 0, 0)
+                ).getTime())
+        ) {
+            Alert.alert(
+                'Invalid Date',
+                'Please select today or a future date.'
+            );
+            return;
+        }
+
+        try {
+            setIsSaving(true);
+
+            // Use the existing ID when editing.
+            // Create a new ID when adding.
+            const currentPurchaseId = originalPurchase
+                ? originalPurchase.id
+                : Date.now().toString();
+
+            // Save newly selected images
+            const permanentImages =
+                await saveImagesPermanently(currentPurchaseId);
+
+            const purchases = await getPurchases();
+
+            if (originalPurchase) {
+                // Update the existing purchase
+                const updatedPurchase: Purchase = {
+                    ...originalPurchase,
+                    name,
+                    estimatedPrice: price,
+                    priority,
+                    plannedDate: plannedDate.toISOString(),
+                    savedAmount: savings,
+                    images: permanentImages,
+                };
+
+                const updatedPurchases = purchases.map(
+                    (purchase) =>
+                        purchase.id === currentPurchaseId
+                            ? updatedPurchase
+                            : purchase
+                );
+
+                await savePurchases(updatedPurchases);
+
+                Alert.alert(
+                    'Purchase Updated',
+                    'Your purchase has been updated successfully.',
+                    [
+                        {
+                            text: 'OK',
+                            onPress: () => router.back(),
+                        },
+                    ]
+                );
+            } else {
+                // Create a new purchase
+                const newPurchase: Purchase = {
+                    id: currentPurchaseId,
+                    name,
+                    estimatedPrice: price,
+                    priority,
+                    plannedDate: plannedDate.toISOString(),
+                    createdAt: new Date().toISOString(),
+                    savedAmount: savings,
+                    images: permanentImages,
+                    status: 'Active',
+                };
+
+                await savePurchases([
+                    ...purchases,
+                    newPurchase,
+                ]);
+
+                Alert.alert(
+                    'Purchase Saved',
+                    'Your purchase has been saved successfully.',
+                    [
+                        {
+                            text: 'OK',
+                            onPress: () => router.back(),
+                        },
+                    ]
+                );
+            }
+        } catch (error) {
+            console.error('Error saving purchase:', error);
+
+            Alert.alert(
+                'Save Failed',
+                'Something went wrong while saving your purchase. Please try again.'
+            );
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <Text style={styles.loadingText}>
+                    Loading purchase...
+                </Text>
+            </View>
+        );
+    }
+
     return (
         <View style={styles.container}>
-
-            {/* Fixed Header */}
+            {/* Header */}
             <View style={styles.header}>
                 <Pressable
                     style={styles.backButton}
@@ -88,37 +392,38 @@ export default function AddPurchaseScreen() {
                 </Pressable>
 
                 <Text style={styles.headerTitle}>
-                    Add New Purchase
+                    {isEditing ? 'Edit Purchase' : 'Add New Purchase'}
                 </Text>
 
                 <View style={styles.headerSpacer} />
             </View>
 
-            {/* Scrollable Content */}
             <ScrollView
                 style={styles.scrollView}
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
             >
-
                 {/* Introduction */}
                 <View style={styles.intro}>
                     <Text style={styles.title}>
-                        Plan your next purchase
+                        {isEditing
+                            ? 'Update your purchase'
+                            : 'Plan your next purchase'}
                     </Text>
 
                     <Text style={styles.subtitle}>
-                        Add the details of something you want to buy later.
+                        {isEditing
+                            ? 'Make changes to your planned purchase details.'
+                            : 'Add the details of something you want to buy later.'}
                     </Text>
                 </View>
 
-                {/* Form Container */}
+                {/* Form */}
                 <View style={styles.formCard}>
                     <Text style={styles.formTitle}>
                         Purchase Information
                     </Text>
 
-                    {/* Purchase Name */}
                     <Text style={styles.inputLabel}>
                         Purchase Name
                     </Text>
@@ -131,7 +436,6 @@ export default function AddPurchaseScreen() {
                         onChangeText={setPurchaseName}
                     />
 
-                    {/* Estimated Price */}
                     <Text style={styles.inputLabel}>
                         Estimated Price
                     </Text>
@@ -145,7 +449,6 @@ export default function AddPurchaseScreen() {
                         keyboardType="decimal-pad"
                     />
 
-                    {/* Priority Selection */}
                     <Text style={styles.inputLabel}>
                         Purchase Priority
                     </Text>
@@ -172,7 +475,6 @@ export default function AddPurchaseScreen() {
                         ))}
                     </View>
 
-                    {/* Planned Purchase Date */}
                     <Text style={styles.inputLabel}>
                         Planned Purchase Date
                     </Text>
@@ -192,7 +494,9 @@ export default function AddPurchaseScreen() {
                         <DateTimePicker
                             value={plannedDate}
                             mode="date"
-                            minimumDate={new Date()}
+                            minimumDate={
+                                isEditing ? undefined : new Date()
+                            }
                             display="default"
                             onChange={(event, selectedDate) => {
                                 setShowDatePicker(false);
@@ -204,9 +508,8 @@ export default function AddPurchaseScreen() {
                         />
                     )}
 
-                    {/* Initial Savings */}
                     <Text style={styles.inputLabel}>
-                        Initial Savings
+                        Amount Saved
                     </Text>
 
                     <TextInput
@@ -230,7 +533,8 @@ export default function AddPurchaseScreen() {
                     <Pressable
                         style={[
                             styles.imagePickerButton,
-                            images.length >= MAX_IMAGES && styles.disabledImageButton,
+                            images.length >= MAX_IMAGES &&
+                                styles.disabledImageButton,
                         ]}
                         onPress={pickImages}
                         disabled={images.length >= MAX_IMAGES}
@@ -242,7 +546,6 @@ export default function AddPurchaseScreen() {
                         </Text>
                     </Pressable>
 
-                    {/* Selected Image Previews */}
                     {images.length > 0 && (
                         <ScrollView
                             horizontal
@@ -271,19 +574,25 @@ export default function AddPurchaseScreen() {
                             ))}
                         </ScrollView>
                     )}
-
                 </View>
 
                 {/* Save Button */}
                 <Pressable
-                    style={styles.saveButton}
-                    onPress={() => { }}
+                    style={[
+                        styles.saveButton,
+                        isSaving && styles.disabledImageButton,
+                    ]}
+                    onPress={handleSave}
+                    disabled={isSaving}
                 >
                     <Text style={styles.saveButtonText}>
-                        Save Purchase
+                        {isSaving
+                            ? 'Saving Purchase...'
+                            : isEditing
+                                ? 'Update Purchase'
+                                : 'Save Purchase'}
                     </Text>
                 </Pressable>
-
             </ScrollView>
         </View>
     );
@@ -293,6 +602,18 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#F7F8FC',
+    },
+
+    loadingContainer: {
+        flex: 1,
+        backgroundColor: '#F7F8FC',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+
+    loadingText: {
+        fontSize: 15,
+        color: '#7B8497',
     },
 
     scrollView: {
@@ -305,7 +626,6 @@ const styles = StyleSheet.create({
         paddingBottom: 40,
     },
 
-    // Fixed Header
     header: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -340,7 +660,6 @@ const styles = StyleSheet.create({
         width: 42,
     },
 
-    // Introduction
     intro: {
         marginBottom: 25,
     },
@@ -358,7 +677,6 @@ const styles = StyleSheet.create({
         lineHeight: 21,
     },
 
-    // Form
     formCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 18,
@@ -393,7 +711,6 @@ const styles = StyleSheet.create({
         marginBottom: 15,
     },
 
-    // Priority
     priorityContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -426,7 +743,6 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
     },
 
-    // Planned Date
     dateButton: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -448,7 +764,6 @@ const styles = StyleSheet.create({
         fontSize: 20,
     },
 
-    // Product Images
     imageCounter: {
         fontSize: 12,
         color: '#7B8497',
@@ -511,7 +826,6 @@ const styles = StyleSheet.create({
         lineHeight: 23,
     },
 
-    // Save Button
     saveButton: {
         backgroundColor: '#2878D0',
         padding: 17,

@@ -1,678 +1,1004 @@
-import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// Sample upcoming purchases
+import {
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+
+const COLORS = {
+    background: '#101114',
+    card: '#242426',
+    cardLight: '#303033',
+    gold: '#D6B66C',
+    goldLight: '#FFF4D6',
+    goldDark: '#49391F',
+    white: '#F7F4EC',
+    grey: '#B5B1A7',
+    muted: '#85827B',
+    track: '#49443A',
+    danger: '#E47777',
+};
+
+const savings = {
+    saved: 12500,
+    goal: 18300,
+};
+
+const statistics = [
+    {
+        id: 'plans',
+        icon: '▣',
+        value: '8',
+        label: 'Planned purchases',
+    },
+    {
+        id: 'remaining',
+        icon: '◈',
+        value: 'ETB 5,800',
+        label: 'Remaining to save',
+    },
+];
+
 const upcomingPurchases = [
     {
-        name: 'Wireless Headphones',
-        category: 'Electronics',
-        price: '3,500',
-        date: 'November 22',
-        priority: 'High',
-        emoji: '🎧',
-    },
-    {
-        name: 'Running Shoes',
-        category: 'Fashion',
-        price: '4,000',
-        date: 'November 28',
-        priority: 'Medium',
-        emoji: '👟',
-    },
-];
-
-// Sample overdue purchases
-const overduePurchases = [
-    {
-        name: 'Laptop',
-        price: '45,000',
-        date: 'November 10',
-        emoji: '💻',
-    },
-];
-
-// Sample recent activities
-const recentActivities = [
-    {
         id: '1',
-        icon: '➕',
-        title: 'New purchase added',
-        description: 'Wireless Headphones',
-        time: 'Today',
+        name: 'Wireless Headphones',
+        price: 'ETB 4,500',
+        saved: 'ETB 2,000',
+        date: 'December 15, 2026',
+        progress: 44,
+        priority: 'High',
+        icon: '♫',
     },
     {
         id: '2',
-        icon: '💰',
-        title: 'Saving updated',
-        description: 'You added 500 to your savings',
-        time: 'Yesterday',
-    },
-    {
-        id: '3',
-        icon: '📅',
-        title: 'Purchase postponed',
-        description: 'Running Shoes',
-        time: '2 days ago',
+        name: 'Running Shoes',
+        price: 'ETB 3,200',
+        saved: 'ETB 1,000',
+        date: 'December 25, 2026',
+        progress: 31,
+        priority: 'Medium',
+        icon: '◉',
     },
 ];
 
+const overduePurchases = [
+    {
+        id: '3',
+        name: 'Laptop',
+        price: 'ETB 35,000',
+        date: 'October 20, 2026',
+    },
+];
+
+const recentActivities = [
+    {
+        id: '1',
+        title: 'Savings updated',
+        description: 'Wireless Headphones',
+        amount: '+ ETB 500',
+        date: 'Today',
+    },
+    {
+        id: '2',
+        title: 'New purchase planned',
+        description: 'Running Shoes',
+        amount: 'ETB 3,200',
+        date: 'Yesterday',
+    },
+];
+
+const monthlyLimit = {
+    total: 10000,
+    planned: 6500,
+};
+
+const formatMoney = (amount: number) =>
+    `ETB ${amount.toLocaleString('en-US')}`;
+
 export default function HomeScreen() {
-    // Temporary sample user name
-    const userName = 'Alex';
+    const userName = 'Betty';
 
-    // Get the current hour
-    const currentHour = new Date().getHours();
+    const currentDate = new Date();
 
-    // Display greeting according to the time
-    const greeting =
-        currentHour < 12
-            ? 'Good morning'
-            : currentHour < 18
-                ? 'Good afternoon'
-                : 'Good evening';
+    const formattedDate = currentDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+    });
 
-    // Sample monthly purchase information
-    const monthlyLimit = 20000;
-    const plannedSpending = 12500;
-    const remaining = monthlyLimit - plannedSpending;
-    const progress = monthlyLimit > 0
-        ? plannedSpending / monthlyLimit
-        : 0;
+    const savingsPercentage = Math.min(
+        (savings.saved / savings.goal) * 100,
+        100
+    );
 
-    // Summary card information
-    const summaryCards = [
-        {
-            icon: '🛍️',
-            number: '8',
-            label: 'Planned Purchases',
-        },
-        {
-            icon: '💰',
-            number: '25,000',
-            label: 'Estimated Cost',
-        },
-        {
-            icon: '🐷',
-            number: '7,500',
-            label: 'Total Saved',
-        },
-        {
-            icon: '📊',
-            number: remaining.toLocaleString(),
-            label: 'Remaining Limit',
-        },
-    ];
+    const spendingPercentage = Math.min(
+        (monthlyLimit.planned / monthlyLimit.total) * 100,
+        100
+    );
+
+    const remainingLimit =
+        monthlyLimit.total - monthlyLimit.planned;
 
     return (
-        <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={false}
-        >
+        <SafeAreaView style={styles.safeArea} edges={['top']}>
+            <StatusBar
+               barStyle="light-content"
+            />
 
-            {/* Part 1: Welcome section */}
-            <View style={styles.header}>
-                <View>
-                    <Text style={styles.greeting}>
-                        {greeting}, {userName}! 👋
-                    </Text>
+            <View style={styles.container}>
+                {/* SCROLLABLE CONTENT */}
+                <ScrollView
+                    style={styles.scrollView}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.scrollContent}
+                >
+                    {/* HEADER */}
+                    <View style={styles.header}>
+                        <View style={styles.headerText}>
+                            <Text style={styles.dateText}>
+                                {formattedDate.toUpperCase()}
+                            </Text>
 
-                    <Text style={styles.subtitle}>
-                        Plan your purchases wisely.
-                    </Text>
-                </View>
+                            <Text style={styles.greeting}>
+                                Hello, {userName}!
+                            </Text>
 
-                <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                        {userName.charAt(0).toUpperCase()}
-                    </Text>
-                </View>
-            </View>
-
-            {/* Part 2: Summary cards */}
-            <Text style={styles.sectionTitle}>Your Overview</Text>
-
-            <View style={styles.summaryGrid}>
-                {summaryCards.map((item) => (
-                    <View key={item.label} style={styles.summaryCard}>
-                        <Text style={styles.cardIcon}>{item.icon}</Text>
-
-                        <Text style={styles.cardNumber}>{item.number}</Text>
-
-                        <Text style={styles.cardLabel}>{item.label}</Text>
-                    </View>
-                ))}
-            </View>
-
-            {/* Part 3: Monthly purchase limit */}
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                    Monthly Purchase Limit
-                </Text>
-
-                <View style={styles.limitCard}>
-                    <View style={styles.limitHeader}>
-                        <Text style={styles.limitLabel}>
-                            Planned Spending
-                        </Text>
-
-                        <Text style={styles.limitValue}>
-                            {plannedSpending.toLocaleString()} / {monthlyLimit.toLocaleString()}
-                        </Text>
-                    </View>
-
-                    <View style={styles.progressBackground}>
-                        <View
-                            style={[
-                                styles.progressFill,
-                                {
-                                    width: `${Math.min(Math.max(progress, 0), 1) * 100}%`,
-                                },
-                            ]}
-                        />
-                    </View>
-
-                    <View style={styles.limitFooter}>
-                        <Text style={styles.remainingText}>
-                            {remaining.toLocaleString()} remaining this month
-                        </Text>
-
-                        <Text style={styles.percentageText}>
-                            {Math.round(progress * 100)}% used
-                        </Text>
-                    </View>
-                </View>
-            </View>
-
-            {/* Part 4: Overdue purchases */}
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>
-                        Overdue Purchases
-                    </Text>
-
-                    <Text style={styles.overdueCount}>
-                        {overduePurchases.length} overdue
-                    </Text>
-                </View>
-
-                {overduePurchases.length === 0 ? (
-                    <View style={styles.emptyCard}>
-                        <Text style={styles.emptyEmoji}>🎉</Text>
-
-                        <Text style={styles.emptyTitle}>
-                            No overdue purchases!
-                        </Text>
-
-                        <Text style={styles.emptyDescription}>
-                            You're keeping your purchase plans on track.
-                        </Text>
-                    </View>
-                ) : (
-                    overduePurchases.map((item) => (
-                        <View key={item.name} style={styles.overdueCard}>
-                            <Text style={styles.productEmoji}>{item.emoji}</Text>
-
-                            <View style={styles.productInfo}>
-                                <Text style={styles.productName}>{item.name}</Text>
-
-                                <Text style={styles.productDetails}>
-                                    Planned: {item.date}
-                                </Text>
-
-                                <Text style={styles.productPrice}>
-                                    {item.price}
-                                </Text>
-                            </View>
-
-                            <View style={styles.overdueBadge}>
-                                <Text style={styles.overdueBadgeText}>
-                                    Overdue
-                                </Text>
-                            </View>
+                            <Text style={styles.tagline}>
+                                Plan Today. Buy When You're Ready.
+                            </Text>
                         </View>
-                    ))
-                )}
-            </View>
 
-            {/* Part 5: Upcoming purchases */}
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>
-                        Upcoming Purchases
-                    </Text>
-
-                    <Text style={styles.upcomingCount}>
-                        {upcomingPurchases.length} upcoming
-                    </Text>
-                </View>
-
-                {upcomingPurchases.length === 0 ? (
-                    <View style={styles.emptyCard}>
-                        <Text style={styles.emptyEmoji}>🛍️</Text>
-
-                        <Text style={styles.emptyTitle}>
-                            No upcoming purchases
-                        </Text>
-
-                        <Text style={styles.emptyDescription}>
-                            Add a purchase plan to see it here.
-                        </Text>
+                        <Pressable
+                            style={styles.profileAvatar}
+                            onPress={() => router.push('/(tabs)/profile')}
+                        >
+                            <Text style={styles.avatarText}>
+                                {userName.charAt(0).toUpperCase()}
+                            </Text>
+                        </Pressable>
                     </View>
-                ) : (
-                    upcomingPurchases.map((item) => (
-                        <View key={item.name} style={styles.purchaseCard}>
-                            <Text style={styles.productEmoji}>{item.emoji}</Text>
 
-                            <View style={styles.productInfo}>
-                                <Text style={styles.productName}>{item.name}</Text>
+                    {/* SAVINGS OVERVIEW */}
+                    <View style={styles.savingsCard}>
+                        <Text style={styles.savingsLabel}>
+                            YOUR SAVINGS OVERVIEW
+                        </Text>
 
-                                <Text style={styles.productDetails}>
-                                    {item.category} · {item.date}
-                                </Text>
+                        <Text style={styles.savingsAmount}>
+                            {formatMoney(savings.saved)}
+                        </Text>
 
-                                <Text style={styles.productPrice}>
-                                    {item.price}
-                                </Text>
-                            </View>
+                        <Text style={styles.savingsDescription}>
+                            Total amount saved
+                        </Text>
 
+                        <View style={styles.savingsProgressTrack}>
                             <View
                                 style={[
-                                    styles.priorityBadge,
-                                    item.priority === 'High'
-                                        ? styles.highPriority
-                                        : styles.mediumPriority,
+                                    styles.savingsProgressFill,
+                                    { width: `${savingsPercentage}%` },
                                 ]}
-                            >
-                                <Text
+                            />
+                        </View>
+
+                        <View style={styles.progressLabels}>
+                            <Text style={styles.savingsProgressText}>
+                                {Math.round(savingsPercentage)}% progress
+                            </Text>
+
+                            <Text style={styles.savingsGoalText}>
+                                {formatMoney(savings.goal)} goal
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* QUICK STATISTICS */}
+                    <View style={styles.statisticsContainer}>
+                        {statistics.map((item) => (
+                            <View key={item.id} style={styles.statCard}>
+                                <Text style={styles.statIcon}>
+                                    {item.icon}
+                                </Text>
+
+                                <Text style={styles.statValue}>
+                                    {item.value}
+                                </Text>
+
+                                <Text style={styles.statLabel}>
+                                    {item.label}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+
+                    {/* MONTHLY PURCHASE LIMIT */}
+                    <View style={styles.section}>
+                        <View style={styles.sectionHeader}>
+                            <View>
+                                <Text style={styles.sectionTitle}>
+                                    Monthly purchase limit
+                                </Text>
+
+                                <Text style={styles.sectionSubtitle}>
+                                    Keep your planned spending under control
+                                </Text>
+                            </View>
+
+                            <Text style={styles.goldAmount}>
+                                {formatMoney(monthlyLimit.total)}
+                            </Text>
+                        </View>
+
+                        <View style={styles.limitCard}>
+                            <View style={styles.limitAmounts}>
+                                <View>
+                                    <Text style={styles.smallLabel}>
+                                        Planned spending
+                                    </Text>
+
+                                    <Text style={styles.limitValue}>
+                                        {formatMoney(monthlyLimit.planned)}
+                                    </Text>
+                                </View>
+
+                                <View style={styles.remainingContainer}>
+                                    <Text style={styles.smallLabel}>
+                                        Remaining
+                                    </Text>
+
+                                    <Text style={styles.remainingValue}>
+                                        {formatMoney(remainingLimit)}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <View style={styles.limitProgressTrack}>
+                                <View
                                     style={[
-                                        styles.priorityBadgeText,
-                                        item.priority === 'High'
-                                            ? styles.highPriorityText
-                                            : styles.mediumPriorityText,
+                                        styles.limitProgressFill,
+                                        { width: `${spendingPercentage}%` },
+                                    ]}
+                                />
+                            </View>
+
+                            <Text style={styles.limitFooter}>
+                                {Math.round(spendingPercentage)}% of your monthly limit used
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* OVERDUE PURCHASES */}
+                    <View style={styles.section}>
+                        <View style={styles.sectionHeader}>
+                            <View>
+                                <Text style={styles.sectionTitle}>
+                                    Overdue purchases
+                                </Text>
+
+                                <Text style={styles.sectionSubtitle}>
+                                    Purchases that need your attention
+                                </Text>
+                            </View>
+
+                            {overduePurchases.length > 0 && (
+                                <View style={styles.overdueBadge}>
+                                    <Text style={styles.overdueBadgeText}>
+                                        {overduePurchases.length} overdue
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+
+                        {overduePurchases.length > 0 ? (
+                            overduePurchases.map((item) => (
+                                <View key={item.id} style={styles.overdueCard}>
+                                    <View style={styles.overdueIcon}>
+                                        <Text style={styles.overdueIconText}>
+                                            !
+                                        </Text>
+                                    </View>
+
+                                    <View style={styles.purchaseInfo}>
+                                        <Text style={styles.purchaseName}>
+                                            {item.name}
+                                        </Text>
+
+                                        <Text style={styles.purchaseDate}>
+                                            Planned for {item.date}
+                                        </Text>
+
+                                        <Text style={styles.purchasePrice}>
+                                            {item.price}
+                                        </Text>
+                                    </View>
+
+                                    <View style={styles.overdueStatus}>
+                                        <Text style={styles.overdueStatusText}>
+                                            Overdue
+                                        </Text>
+                                    </View>
+                                </View>
+                            ))
+                        ) : (
+                            <View style={styles.emptyCard}>
+                                <Text style={styles.emptyText}>
+                                    No overdue purchases. You're on track!
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* UPCOMING PURCHASES */}
+                    <View style={styles.section}>
+                        <View style={styles.sectionHeader}>
+                            <View>
+                                <Text style={styles.sectionTitle}>
+                                    Upcoming purchases
+                                </Text>
+
+                                <Text style={styles.sectionSubtitle}>
+                                    Your next planned purchases
+                                </Text>
+                            </View>
+
+                            <Pressable
+                                onPress={() => router.push('/(tabs)/plans')}
+                            >
+                                <Text style={styles.viewAllText}>
+                                    View all →
+                                </Text>
+                            </Pressable>
+                        </View>
+
+                        {upcomingPurchases.map((item) => (
+                            <Pressable
+                                key={item.id}
+                                style={styles.upcomingCard}
+                                onPress={() => router.push('/(tabs)/plans')}
+                            >
+                                <View style={styles.productImagePlaceholder}>
+                                    <Text style={styles.productIcon}>
+                                        {item.icon}
+                                    </Text>
+                                </View>
+
+                                <View style={styles.upcomingInfo}>
+                                    <Text style={styles.purchaseName}>
+                                        {item.name}
+                                    </Text>
+
+                                    <Text style={styles.purchaseDate}>
+                                        {item.date}
+                                    </Text>
+
+                                    <Text style={styles.purchasePrice}>
+                                        {item.price}
+                                    </Text>
+
+                                    <View style={styles.purchaseProgressTrack}>
+                                        <View
+                                            style={[
+                                                styles.purchaseProgressFill,
+                                                { width: `${item.progress}%` },
+                                            ]}
+                                        />
+                                    </View>
+
+                                    <Text style={styles.savedText}>
+                                        {item.saved} saved · {item.progress}%
+                                    </Text>
+                                </View>
+
+                                <View style={styles.priorityContainer}>
+                                    <Text
+                                        style={[
+                                            styles.priorityText,
+                                            item.priority === 'High'
+                                                ? styles.highPriority
+                                                : styles.mediumPriority,
+                                        ]}
+                                    >
+                                        {item.priority}
+                                    </Text>
+                                </View>
+                            </Pressable>
+                        ))}
+                    </View>
+
+                    {/* RECENT ACTIVITY */}
+                    <View style={styles.section}>
+                        <View style={styles.sectionHeader}>
+                            <View>
+                                <Text style={styles.sectionTitle}>
+                                    Recent activity
+                                </Text>
+
+                                <Text style={styles.sectionSubtitle}>
+                                    Your latest updates
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.activityCard}>
+                            {recentActivities.map((activity, index) => (
+                                <View
+                                    key={activity.id}
+                                    style={[
+                                        styles.activityItem,
+                                        index !== recentActivities.length - 1 &&
+                                            styles.activityBorder,
                                     ]}
                                 >
-                                    {item.priority}
-                                </Text>
-                            </View>
+                                    <View style={styles.activityIcon}>
+                                        <Text style={styles.activityIconText}>
+                                            ✓
+                                        </Text>
+                                    </View>
+
+                                    <View style={styles.activityInfo}>
+                                        <Text style={styles.activityTitle}>
+                                            {activity.title}
+                                        </Text>
+
+                                        <Text style={styles.activityDescription}>
+                                            {activity.description}
+                                        </Text>
+                                    </View>
+
+                                    <View style={styles.activityRight}>
+                                        <Text style={styles.activityAmount}>
+                                            {activity.amount}
+                                        </Text>
+
+                                        <Text style={styles.activityDate}>
+                                            {activity.date}
+                                        </Text>
+                                    </View>
+                                </View>
+                            ))}
                         </View>
-                    ))
-                )}
-            </View>
-
-            {/* Part 6: Recent activity */}
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                    Recent Activity
-                </Text>
-
-                {recentActivities.length === 0 ? (
-                    <View style={styles.emptyCard}>
-                        <Text style={styles.emptyEmoji}>📋</Text>
-
-                        <Text style={styles.emptyTitle}>
-                            No recent activity
-                        </Text>
-
-                        <Text style={styles.emptyDescription}>
-                            Your purchase activities will appear here.
-                        </Text>
                     </View>
-                ) : (
-                    recentActivities.map((activity) => (
-                        <View key={activity.id} style={styles.activityCard}>
-                            <Text style={styles.activityIcon}>
-                                {activity.icon}
-                            </Text>
+                </ScrollView>
 
-                            <View style={styles.productInfo}>
-                                <Text style={styles.productName}>
-                                    {activity.title}
-                                </Text>
+                {/* FIXED BOTTOM BUTTON */}
+                <View style={styles.bottomContainer}>
+                    <Pressable
+                        style={styles.addButton}
+                        onPress={() => router.push('/purchase/add')}
+                    >
+                        <Text style={styles.addButtonIcon}>+</Text>
 
-                                <Text style={styles.productDetails}>
-                                    {activity.description}
-                                </Text>
-                            </View>
+                        <Text style={styles.addButtonText}>
+                            Plan a Purchase
+                        </Text>
+                    </Pressable>
 
-                            <Text style={styles.activityTime}>
-                                {activity.time}
-                            </Text>
-                        </View>
-                    ))
-                )}
+                    <Text style={styles.bottomMessage}>
+                        Make thoughtful purchases, one plan at a time.
+                    </Text>
+                </View>
             </View>
-
-            {/* Part 7: Add new purchase button */}
-            <Pressable
-                style={styles.addButton}
-                onPress={() => router.push('/purchase/add')}
-            >
-                <Text style={styles.addButtonText}>
-                    + Add New Purchase
-                </Text>
-            </Pressable>
-
-        </ScrollView>
+        </SafeAreaView>
     );
 }
 
-// Home screen styles
 const styles = StyleSheet.create({
-    container: {
+    safeArea: {
         flex: 1,
-        backgroundColor: '#F7F8FC',
+        backgroundColor: COLORS.background,
     },
 
-    content: {
-        padding: 20,
-        paddingTop: 55,
-        paddingBottom: 35,
+    container: {
+        flex: 1,
+        backgroundColor: COLORS.background,
+    },
+
+    scrollView: {
+        flex: 1,
+    },
+
+    scrollContent: {
+        paddingHorizontal: 20,
+        paddingTop: 18,
+        paddingBottom: 20,
     },
 
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 28,
+        marginBottom: 26,
+    },
+
+    headerText: {
+        flex: 1,
+        paddingRight: 12,
+    },
+
+    dateText: {
+        color: COLORS.muted,
+        fontSize: 10,
+        fontWeight: '600',
+        letterSpacing: 1,
+        marginBottom: 8,
     },
 
     greeting: {
-        fontSize: 25,
-        fontWeight: 'bold',
-        color: '#17233D',
+        color: COLORS.white,
+        fontSize: 27,
+        fontWeight: '700',
+        marginBottom: 5,
     },
 
-    subtitle: {
-        fontSize: 14,
-        color: '#7B8497',
-        marginTop: 6,
+    tagline: {
+        color: COLORS.grey,
+        fontSize: 12,
     },
 
-    avatar: {
+    profileAvatar: {
         width: 46,
         height: 46,
         borderRadius: 23,
-        backgroundColor: '#DCEBFF',
-        justifyContent: 'center',
+        backgroundColor: '#292720',
+        borderWidth: 1,
+        borderColor: COLORS.gold,
         alignItems: 'center',
+        justifyContent: 'center',
     },
 
     avatarText: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#2878D0',
+        color: COLORS.gold,
+        fontSize: 19,
+        fontWeight: '700',
     },
 
-    section: {
-        marginTop: 25,
+    savingsCard: {
+        backgroundColor: COLORS.gold,
+        borderRadius: 20,
+        padding: 22,
+        marginBottom: 18,
     },
 
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#17233D',
-        marginBottom: 14,
-    },
-
-    summaryGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        gap: 12,
-    },
-
-    summaryCard: {
-        width: '48%',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: '#EEF0F5',
-    },
-
-    cardIcon: {
-        fontSize: 23,
+    savingsLabel: {
+        color: COLORS.goldDark,
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 1,
         marginBottom: 12,
     },
 
-    cardNumber: {
-        fontSize: 21,
-        fontWeight: 'bold',
-        color: '#17233D',
+    savingsAmount: {
+        color: '#211A10',
+        fontSize: 32,
+        fontWeight: '800',
     },
 
-    cardLabel: {
+    savingsDescription: {
+        color: COLORS.goldDark,
         fontSize: 12,
-        color: '#7B8497',
-        marginTop: 5,
+        marginTop: 4,
     },
 
-    limitCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 18,
-        borderWidth: 1,
-        borderColor: '#EEF0F5',
-    },
-
-    limitHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-
-    limitLabel: {
-        fontSize: 13,
-        color: '#7B8497',
-    },
-
-    limitValue: {
-        fontSize: 13,
-        fontWeight: 'bold',
-        color: '#17233D',
-    },
-
-    progressBackground: {
-        height: 10,
-        backgroundColor: '#E9EEF5',
+    savingsProgressTrack: {
+        height: 9,
+        backgroundColor: '#A88A4B',
         borderRadius: 10,
-        marginTop: 15,
         overflow: 'hidden',
+        marginTop: 22,
     },
 
-    progressFill: {
+    savingsProgressFill: {
         height: '100%',
-        backgroundColor: '#3287DF',
+        backgroundColor: COLORS.goldLight,
         borderRadius: 10,
     },
 
-    limitFooter: {
+    progressLabels: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        marginTop: 12,
+        marginTop: 10,
     },
 
-    remainingText: {
-        color: '#23865B',
-        fontSize: 12,
+    savingsProgressText: {
+        color: COLORS.goldDark,
+        fontSize: 11,
+        fontWeight: '600',
     },
 
-    percentageText: {
-        color: '#7B8497',
-        fontSize: 12,
-        fontWeight: 'bold',
+    savingsGoalText: {
+        color: '#332817',
+        fontSize: 11,
+        fontWeight: '600',
+    },
+
+    statisticsContainer: {
+        flexDirection: 'row',
+        gap: 12,
+        marginBottom: 28,
+    },
+
+    statCard: {
+        flex: 1,
+        backgroundColor: COLORS.card,
+        borderRadius: 16,
+        padding: 16,
+        minHeight: 120,
+    },
+
+    statIcon: {
+        color: COLORS.gold,
+        fontSize: 22,
+        marginBottom: 10,
+    },
+
+    statValue: {
+        color: COLORS.white,
+        fontSize: 20,
+        fontWeight: '700',
+        marginBottom: 5,
+    },
+
+    statLabel: {
+        color: COLORS.grey,
+        fontSize: 11,
+    },
+
+    section: {
+        marginBottom: 27,
     },
 
     sectionHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-    },
-
-    overdueCount: {
-        color: '#D97757',
-        fontSize: 12,
-        fontWeight: 'bold',
         marginBottom: 14,
     },
 
-    upcomingCount: {
-        color: '#3287DF',
+    sectionTitle: {
+        color: COLORS.white,
+        fontSize: 17,
+        fontWeight: '700',
+        marginBottom: 5,
+    },
+
+    sectionSubtitle: {
+        color: COLORS.muted,
+        fontSize: 11,
+    },
+
+    goldAmount: {
+        color: COLORS.gold,
         fontSize: 12,
-        fontWeight: 'bold',
-        marginBottom: 14,
+        fontWeight: '700',
+    },
+
+    limitCard: {
+        backgroundColor: COLORS.card,
+        borderRadius: 16,
+        padding: 17,
+    },
+
+    limitAmounts: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 17,
+    },
+
+    smallLabel: {
+        color: COLORS.grey,
+        fontSize: 11,
+        marginBottom: 6,
+    },
+
+    limitValue: {
+        color: COLORS.white,
+        fontSize: 19,
+        fontWeight: '700',
+    },
+
+    remainingContainer: {
+        alignItems: 'flex-end',
+    },
+
+    remainingValue: {
+        color: COLORS.gold,
+        fontSize: 19,
+        fontWeight: '700',
+    },
+
+    limitProgressTrack: {
+        height: 7,
+        backgroundColor: COLORS.track,
+        borderRadius: 10,
+        overflow: 'hidden',
+    },
+
+    limitProgressFill: {
+        height: '100%',
+        backgroundColor: COLORS.gold,
+        borderRadius: 10,
+    },
+
+    limitFooter: {
+        color: COLORS.muted,
+        fontSize: 10,
+        marginTop: 9,
+    },
+
+    overdueBadge: {
+        backgroundColor: '#492B2B',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 20,
+    },
+
+    overdueBadgeText: {
+        color: '#F19A9A',
+        fontSize: 10,
+        fontWeight: '600',
     },
 
     overdueCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFF7F3',
+        backgroundColor: COLORS.card,
         borderRadius: 15,
         padding: 14,
-        borderWidth: 1,
-        borderColor: '#F9E2D8',
+        borderLeftWidth: 3,
+        borderLeftColor: COLORS.danger,
     },
 
-    purchaseCard: {
-        flexDirection: 'row',
+    overdueIcon: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: '#492B2B',
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 15,
-        padding: 14,
-        marginBottom: 10,
-        borderWidth: 1,
-        borderColor: '#EEF0F5',
+        justifyContent: 'center',
+        marginRight: 12,
     },
 
-    productEmoji: {
-        fontSize: 30,
-        marginRight: 13,
+    overdueIconText: {
+        color: '#F19A9A',
+        fontSize: 20,
+        fontWeight: '700',
     },
 
-    productInfo: {
-        flex: 1,
-    },
-
-    productName: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#17233D',
-    },
-
-    productDetails: {
-        fontSize: 12,
-        color: '#7B8497',
-        marginTop: 5,
-    },
-
-    productPrice: {
-        fontSize: 13,
-        fontWeight: 'bold',
-        color: '#3287DF',
-        marginTop: 6,
-    },
-
-    overdueBadge: {
-        backgroundColor: '#FCE4DA',
-        paddingHorizontal: 9,
-        paddingVertical: 6,
+    overdueStatus: {
+        backgroundColor: '#492B2B',
         borderRadius: 8,
+        paddingHorizontal: 8,
+        paddingVertical: 5,
     },
 
-    overdueBadgeText: {
-        fontSize: 10,
-        fontWeight: 'bold',
-        color: '#C35E3E',
-    },
-
-    priorityBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 8,
-    },
-
-    highPriority: {
-        backgroundColor: '#FCE4E4',
-    },
-
-    mediumPriority: {
-        backgroundColor: '#FFF1D6',
-    },
-
-    priorityBadgeText: {
-        fontSize: 10,
-        fontWeight: 'bold',
-    },
-
-    highPriorityText: {
-        color: '#D35454',
-    },
-
-    mediumPriorityText: {
-        color: '#B7791F',
+    overdueStatusText: {
+        color: '#F19A9A',
+        fontSize: 9,
+        fontWeight: '700',
     },
 
     emptyCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 15,
-        padding: 22,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#EEF0F5',
+        backgroundColor: COLORS.card,
+        padding: 18,
+        borderRadius: 14,
     },
 
-    emptyEmoji: {
-        fontSize: 30,
-        marginBottom: 10,
-    },
-
-    emptyTitle: {
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#17233D',
-    },
-
-    emptyDescription: {
+    emptyText: {
+        color: COLORS.grey,
         fontSize: 12,
-        color: '#7B8497',
-        marginTop: 6,
         textAlign: 'center',
     },
 
+    purchaseInfo: {
+        flex: 1,
+    },
+
+    purchaseName: {
+        color: COLORS.white,
+        fontSize: 13,
+        fontWeight: '700',
+        marginBottom: 5,
+    },
+
+    purchaseDate: {
+        color: COLORS.muted,
+        fontSize: 10,
+        marginBottom: 6,
+    },
+
+    purchasePrice: {
+        color: COLORS.gold,
+        fontSize: 13,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+
+    viewAllText: {
+        color: COLORS.gold,
+        fontSize: 11,
+        fontWeight: '600',
+    },
+
+    upcomingCard: {
+        flexDirection: 'row',
+        backgroundColor: COLORS.card,
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 12,
+        alignItems: 'center',
+    },
+
+    productImagePlaceholder: {
+        width: 76,
+        height: 88,
+        backgroundColor: COLORS.cardLight,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12,
+    },
+
+    productIcon: {
+        color: COLORS.gold,
+        fontSize: 30,
+    },
+
+    upcomingInfo: {
+        flex: 1,
+    },
+
+    purchaseProgressTrack: {
+        height: 5,
+        backgroundColor: COLORS.track,
+        borderRadius: 10,
+        overflow: 'hidden',
+        marginTop: 2,
+    },
+
+    purchaseProgressFill: {
+        height: '100%',
+        backgroundColor: COLORS.gold,
+        borderRadius: 10,
+    },
+
+    savedText: {
+        color: COLORS.grey,
+        fontSize: 9,
+        marginTop: 6,
+    },
+
+    priorityContainer: {
+        alignSelf: 'flex-start',
+        marginLeft: 6,
+    },
+
+    priorityText: {
+        fontSize: 9,
+        fontWeight: '700',
+        paddingHorizontal: 7,
+        paddingVertical: 5,
+        borderRadius: 7,
+        overflow: 'hidden',
+    },
+
+    highPriority: {
+        color: '#F0A0A0',
+        backgroundColor: '#492B2B',
+    },
+
+    mediumPriority: {
+        color: COLORS.gold,
+        backgroundColor: '#49402D',
+    },
+
     activityCard: {
+        backgroundColor: COLORS.card,
+        borderRadius: 16,
+        paddingHorizontal: 14,
+    },
+
+    activityItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        padding: 14,
-        borderRadius: 14,
-        marginBottom: 9,
+        paddingVertical: 15,
+    },
+
+    activityBorder: {
+        borderBottomWidth: 1,
+        borderBottomColor: '#38383A',
     },
 
     activityIcon: {
-        fontSize: 22,
-        marginRight: 13,
+        width: 34,
+        height: 34,
+        borderRadius: 12,
+        backgroundColor: '#37342C',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 11,
     },
 
-    activityTime: {
+    activityIconText: {
+        color: COLORS.gold,
+        fontSize: 15,
+        fontWeight: '700',
+    },
+
+    activityInfo: {
+        flex: 1,
+    },
+
+    activityTitle: {
+        color: COLORS.white,
+        fontSize: 12,
+        fontWeight: '600',
+        marginBottom: 4,
+    },
+
+    activityDescription: {
+        color: COLORS.grey,
         fontSize: 10,
-        color: '#9AA2B1',
-        marginLeft: 8,
+    },
+
+    activityRight: {
+        alignItems: 'flex-end',
+    },
+
+    activityAmount: {
+        color: COLORS.gold,
+        fontSize: 11,
+        fontWeight: '700',
+        marginBottom: 5,
+    },
+
+    activityDate: {
+        color: COLORS.muted,
+        fontSize: 9,
+    },
+
+    // FIXED BOTTOM BUTTON
+    bottomContainer: {
+        backgroundColor: COLORS.background,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 8,
+        borderTopWidth: 1,
+        borderTopColor: '#29292B',
     },
 
     addButton: {
-        backgroundColor: '#2878D0',
-        padding: 17,
-        borderRadius: 14,
+        flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 28,
+        justifyContent: 'center',
+        backgroundColor: COLORS.gold,
+        borderRadius: 15,
+        paddingVertical: 16,
+    },
+
+    addButtonIcon: {
+        color: '#211A10',
+        fontSize: 22,
+        fontWeight: '700',
+        marginRight: 9,
     },
 
     addButtonText: {
-        color: '#FFFFFF',
+        color: '#211A10',
         fontSize: 15,
-        fontWeight: 'bold',
+        fontWeight: '700',
+    },
+
+    bottomMessage: {
+        color: COLORS.muted,
+        textAlign: 'center',
+        fontSize: 10,
+        marginTop: 9,
     },
 });
