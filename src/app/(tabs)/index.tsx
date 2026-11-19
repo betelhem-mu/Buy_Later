@@ -8,7 +8,13 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import {
+    getPurchases,
+    savePurchases,
+} from '../../services/purchaseStorage';
+import type { Purchase } from '../../types/purchase';
 
 const COLORS = {
     background: '#101114',
@@ -22,11 +28,6 @@ const COLORS = {
     muted: '#85827B',
     track: '#49443A',
     danger: '#E47777',
-};
-
-const savings = {
-    saved: 12500,
-    goal: 18300,
 };
 
 const statistics = [
@@ -67,15 +68,6 @@ const upcomingPurchases = [
     },
 ];
 
-const overduePurchases = [
-    {
-        id: '3',
-        name: 'Laptop',
-        price: 'ETB 35,000',
-        date: 'October 20, 2026',
-    },
-];
-
 const recentActivities = [
     {
         id: '1',
@@ -104,6 +96,104 @@ const formatMoney = (amount: number) =>
 export default function HomeScreen() {
     const userName = 'Betty';
 
+    const [savings, setSavings] = useState({
+        saved: 0,
+        goal: 0,
+    });
+
+    const [overduePurchases, setOverduePurchases] = useState<Purchase[]>([]);
+
+    useFocusEffect(
+        useCallback(() => {
+            let isActive = true;
+
+            const loadHomeData = async () => {
+                try {
+                    const purchases = await getPurchases();
+
+                    // Update overdue purchases based on the planned month
+                    const today = new Date();
+
+                    const currentYearMonth =
+                        `${today.getFullYear()}-${String(
+                            today.getMonth() + 1
+                        ).padStart(2, '0')}`;
+
+                    const updatedPurchases = purchases.map((purchase) => {
+                        const plannedYearMonth =
+                            purchase.plannedDate.slice(0, 7);
+
+                        if (
+                            purchase.status === 'Active' &&
+                            plannedYearMonth < currentYearMonth
+                        ) {
+                            return {
+                                ...purchase,
+                                status: 'Overdue' as const,
+                            };
+                        }
+
+                        return purchase;
+                    });
+
+                    // Save automatic overdue updates
+                    const hasChanges = updatedPurchases.some(
+                        (purchase, index) =>
+                            purchase.status !== purchases[index].status
+                    );
+
+                    if (hasChanges) {
+                        await savePurchases(updatedPurchases);
+                    }
+
+                    // Calculate savings from active and overdue purchases
+                    const activePurchases = updatedPurchases.filter(
+                        (purchase) =>
+                            purchase.status === 'Active' ||
+                            purchase.status === 'Overdue'
+                    );
+
+                    const totalSaved = activePurchases.reduce(
+                        (total, purchase) =>
+                            total + purchase.savedAmount,
+                        0
+                    );
+
+                    const totalGoal = activePurchases.reduce(
+                        (total, purchase) =>
+                            total + purchase.estimatedPrice,
+                        0
+                    );
+
+                    // Get actual overdue purchases
+                    const overdueItems = updatedPurchases.filter(
+                        (purchase) => purchase.status === 'Overdue'
+                    );
+
+                    if (isActive) {
+                        setSavings({
+                            saved: totalSaved,
+                            goal: totalGoal,
+                        });
+
+                        setOverduePurchases(overdueItems);
+                    }
+                } catch (error) {
+                    console.error(
+                        'Error loading Home data:',
+                        error
+                    );
+                }
+            };
+
+            loadHomeData();
+
+            return () => {
+                isActive = false;
+            };
+        }, [])
+    );
+
     const currentDate = new Date();
 
     const formattedDate = currentDate.toLocaleDateString('en-US', {
@@ -113,10 +203,13 @@ export default function HomeScreen() {
         year: 'numeric',
     });
 
-    const savingsPercentage = Math.min(
-        (savings.saved / savings.goal) * 100,
-        100
-    );
+    const savingsPercentage =
+        savings.goal > 0
+            ? Math.min(
+                (savings.saved / savings.goal) * 100,
+                100
+            )
+            : 0;
 
     const spendingPercentage = Math.min(
         (monthlyLimit.planned / monthlyLimit.total) * 100,
@@ -126,14 +219,23 @@ export default function HomeScreen() {
     const remainingLimit =
         monthlyLimit.total - monthlyLimit.planned;
 
+    const remainingToSave = Math.max(
+        savings.goal - savings.saved,
+        0
+    );
+
+    const openPurchaseDetails = (purchaseId: string) => {
+        router.push({
+            pathname: '/purchase/[id]',
+            params: { id: purchaseId },
+        });
+    };
+
     return (
         <SafeAreaView style={styles.safeArea} edges={['top']}>
-            <StatusBar
-               barStyle="light-content"
-            />
+            <StatusBar barStyle="light-content" />
 
             <View style={styles.container}>
-                {/* SCROLLABLE CONTENT */}
                 <ScrollView
                     style={styles.scrollView}
                     showsVerticalScrollIndicator={false}
@@ -197,6 +299,10 @@ export default function HomeScreen() {
                                 {formatMoney(savings.goal)} goal
                             </Text>
                         </View>
+
+                        <Text style={styles.savingsDescription}>
+                            {formatMoney(remainingToSave)} remaining to save
+                        </Text>
                     </View>
 
                     {/* QUICK STATISTICS */}
@@ -298,7 +404,11 @@ export default function HomeScreen() {
 
                         {overduePurchases.length > 0 ? (
                             overduePurchases.map((item) => (
-                                <View key={item.id} style={styles.overdueCard}>
+                                <Pressable
+                                    key={item.id}
+                                    style={styles.overdueCard}
+                                    onPress={() => openPurchaseDetails(item.id)}
+                                >
                                     <View style={styles.overdueIcon}>
                                         <Text style={styles.overdueIconText}>
                                             !
@@ -311,11 +421,17 @@ export default function HomeScreen() {
                                         </Text>
 
                                         <Text style={styles.purchaseDate}>
-                                            Planned for {item.date}
+                                            Planned for {new Date(
+                                                `${item.plannedDate}T00:00:00`
+                                            ).toLocaleDateString('en-US', {
+                                                month: 'long',
+                                                day: 'numeric',
+                                                year: 'numeric',
+                                            })}
                                         </Text>
 
                                         <Text style={styles.purchasePrice}>
-                                            {item.price}
+                                            {formatMoney(item.estimatedPrice)}
                                         </Text>
                                     </View>
 
@@ -324,7 +440,7 @@ export default function HomeScreen() {
                                             Overdue
                                         </Text>
                                     </View>
-                                </View>
+                                </Pressable>
                             ))
                         ) : (
                             <View style={styles.emptyCard}>
@@ -963,7 +1079,6 @@ const styles = StyleSheet.create({
         fontSize: 9,
     },
 
-    // FIXED BOTTOM BUTTON
     bottomContainer: {
         backgroundColor: COLORS.background,
         paddingHorizontal: 20,
@@ -971,27 +1086,30 @@ const styles = StyleSheet.create({
         paddingBottom: 8,
         borderTopWidth: 1,
         borderTopColor: '#29292B',
+        alignItems: 'flex-start',
     },
 
     addButton: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+        alignSelf: 'flex-start',
         backgroundColor: COLORS.gold,
-        borderRadius: 15,
-        paddingVertical: 16,
+        borderRadius: 12,
+        paddingVertical: 9,
+        paddingHorizontal: 15,
     },
 
     addButtonIcon: {
         color: '#211A10',
-        fontSize: 22,
+        fontSize: 18,
         fontWeight: '700',
-        marginRight: 9,
+        marginRight: 7,
     },
 
     addButtonText: {
         color: '#211A10',
-        fontSize: 15,
+        fontSize: 12,
         fontWeight: '700',
     },
 

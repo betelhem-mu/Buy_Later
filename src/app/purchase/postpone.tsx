@@ -1,15 +1,20 @@
 
 import { useCallback, useState } from 'react';
+
 import {
     ActivityIndicator,
     Alert,
     Pressable,
     SafeAreaView,
+    ScrollView,
+    StatusBar,
     StyleSheet,
     Text,
     View,
 } from 'react-native';
+
 import DateTimePicker from '@react-native-community/datetimepicker';
+
 import {
     useLocalSearchParams,
     useRouter,
@@ -21,14 +26,22 @@ import {
     savePurchases,
 } from '../../services/purchaseStorage';
 
+import {
+    scheduleAllPurchaseNotifications,
+    cancelAllPurchaseNotifications,
+} from '../../services/notifications/notificationService';
+
 import type { Purchase } from '../../types/purchase';
 
 const COLORS = {
     background: '#101114',
     card: '#242426',
     gold: '#D6B66C',
+    goldLight: '#FFF4D6',
     text: '#F7F4EC',
     secondary: '#B5B1A7',
+    muted: '#85827B',
+    track: '#49443A',
 };
 
 export default function PostponePurchaseScreen() {
@@ -41,21 +54,47 @@ export default function PostponePurchaseScreen() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
+    // Convert stored date into a local calendar date
+    const parseLocalDate = (dateString: string) => {
+        const [year, month, day] = dateString
+            .slice(0, 10)
+            .split('-')
+            .map(Number);
+
+        return new Date(year, month - 1, day);
+    };
+
+    // Format date for display
+    const formatDate = (date: Date) => {
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        });
+    };
+
     // Load the selected purchase
     const loadPurchase = useCallback(async () => {
         try {
             const purchases = await getPurchases();
-            const found = purchases.find((item) => item.id === id);
+
+            const found = purchases.find(
+                item => item.id === id
+            );
 
             if (found) {
                 setPurchase(found);
-                setNewDate(new Date(found.plannedDate));
+                setNewDate(parseLocalDate(found.plannedDate));
             } else {
                 setPurchase(null);
             }
         } catch (error) {
             console.error('Error loading purchase:', error);
-            Alert.alert('Error', 'Could not load this purchase.');
+
+            Alert.alert(
+                'Error',
+                'Could not load this purchase.'
+            );
         } finally {
             setLoading(false);
         }
@@ -80,9 +119,11 @@ export default function PostponePurchaseScreen() {
         }
     };
 
-    // Save the new planned date
+    // Save the new planned date and reschedule notifications
     const handleSave = async () => {
-        if (!purchase) return;
+        if (!purchase || saving) {
+            return;
+        }
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -100,29 +141,78 @@ export default function PostponePurchaseScreen() {
 
         setSaving(true);
 
+        let newReminderIds: string[] = [];
+        let newOverdueId: string | undefined;
+
         try {
             const purchases = await getPurchases();
 
-            const updatedPurchases = purchases.map((item) => {
-                if (item.id !== purchase.id) {
+            const currentPurchase = purchases.find(
+                item => item.id === purchase.id
+            );
+
+            if (!currentPurchase) {
+                Alert.alert(
+                    'Purchase Not Found',
+                    'This purchase could not be found.'
+                );
+                return;
+            }
+
+            // Store the selected calendar date at 9 AM
+            const plannedDateForStorage = new Date(selectedDate);
+            plannedDateForStorage.setHours(9, 0, 0, 0);
+
+            const updatedPlannedDate =
+                plannedDateForStorage.toISOString();
+
+            // Schedule notifications for the new planned date
+            const scheduledNotifications =
+                await scheduleAllPurchaseNotifications(
+                    currentPurchase.id,
+                    currentPurchase.name,
+                    currentPurchase.createdAt,
+                    updatedPlannedDate
+                );
+
+            newReminderIds =
+                scheduledNotifications.reminderNotificationIds;
+
+            newOverdueId =
+                scheduledNotifications.overdueNotificationId;
+
+            // Update the purchase while preserving its other information
+            const updatedPurchases = purchases.map(item => {
+                if (item.id !== currentPurchase.id) {
                     return item;
                 }
 
                 return {
                     ...item,
-                    plannedDate: selectedDate.toISOString(),
+                    plannedDate: updatedPlannedDate,
                     status:
                         item.status === 'Overdue'
-                            ? 'Active'
+                            ? 'Active' as const
                             : item.status,
+                    reminderNotificationIds: newReminderIds,
+                    overdueNotificationId: newOverdueId,
+                    notificationsScheduled:
+                        newReminderIds.length > 0 ||
+                        newOverdueId !== undefined,
                 };
             });
 
             await savePurchases(updatedPurchases);
 
+            // Cancel old notifications after saving the new data
+            await cancelAllPurchaseNotifications(
+                currentPurchase.reminderNotificationIds ?? [],
+                currentPurchase.overdueNotificationId
+            );
+
             Alert.alert(
                 'Purchase Rescheduled',
-                'Your new planned date has been saved.',
+                'Your new planned date has been saved and your reminders have been updated.',
                 [
                     {
                         text: 'OK',
@@ -133,9 +223,15 @@ export default function PostponePurchaseScreen() {
         } catch (error) {
             console.error('Error postponing purchase:', error);
 
+            // Clean up newly scheduled notifications if saving failed
+            await cancelAllPurchaseNotifications(
+                newReminderIds,
+                newOverdueId
+            );
+
             Alert.alert(
                 'Error',
-                'Could not reschedule this purchase.'
+                'Could not reschedule this purchase. Please try again.'
             );
         } finally {
             setSaving(false);
@@ -145,7 +241,9 @@ export default function PostponePurchaseScreen() {
     // Loading screen
     if (loading) {
         return (
-            <View style={styles.center}>
+            <SafeAreaView style={styles.center}>
+                <StatusBar barStyle="light-content" />
+
                 <ActivityIndicator
                     size="large"
                     color={COLORS.gold}
@@ -154,46 +252,69 @@ export default function PostponePurchaseScreen() {
                 <Text style={styles.secondaryText}>
                     Loading purchase...
                 </Text>
-            </View>
+            </SafeAreaView>
         );
     }
 
     // Purchase not found
     if (!purchase) {
         return (
-            <View style={styles.center}>
+            <SafeAreaView style={styles.center}>
+                <StatusBar barStyle="light-content" />
+
                 <Text style={styles.title}>
                     Purchase not found
                 </Text>
 
-                <Pressable onPress={() => router.back()}>
+                <Pressable
+                    style={styles.backButton}
+                    onPress={() => router.back()}
+                >
                     <Text style={styles.backText}>
                         Go Back
                     </Text>
                 </Pressable>
-            </View>
+            </SafeAreaView>
         );
     }
 
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+
     return (
         <SafeAreaView style={styles.container}>
-            <View style={styles.content}>
-                <Pressable onPress={() => router.back()}>
+            <StatusBar barStyle="light-content" />
+
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.content}
+            >
+                <Pressable
+                    onPress={() => router.back()}
+                    disabled={saving}
+                >
                     <Text style={styles.backText}>
-                        ‹  Back
+                        ‹  Back to Purchase
                     </Text>
                 </Pressable>
 
-                <Text style={styles.title}>
-                    Postpone Purchase
-                </Text>
+                <View style={styles.header}>
+                    <Text style={styles.title}>
+                        Postpone Purchase
+                    </Text>
 
-                <Text style={styles.description}>
-                    Choose a new date for your planned purchase.
-                </Text>
+                    <Text style={styles.description}>
+                        Choose a new date for your planned purchase.
+                    </Text>
+                </View>
 
-                {/* Purchase Information */}
+                {/* CURRENT PURCHASE */}
                 <View style={styles.purchaseCard}>
+                    <Text style={styles.sectionLabel}>
+                        CURRENT PURCHASE
+                    </Text>
+
                     <Text style={styles.purchaseName}>
                         {purchase.name}
                     </Text>
@@ -202,55 +323,69 @@ export default function PostponePurchaseScreen() {
                         ETB {purchase.estimatedPrice.toLocaleString()}
                     </Text>
 
-                    <Text style={styles.secondaryText}>
-                        Current planned date
+                    <View style={styles.divider} />
+
+                    <Text style={styles.currentDateLabel}>
+                        Current Planned Date
                     </Text>
 
                     <Text style={styles.currentDate}>
-                        {new Date(
-                            purchase.plannedDate
-                        ).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                        })}
+                        {formatDate(parseLocalDate(purchase.plannedDate))}
                     </Text>
+
+                    {purchase.status === 'Overdue' && (
+                        <View style={styles.overdueBadge}>
+                            <Text style={styles.overdueText}>
+                                Overdue
+                            </Text>
+                        </View>
+                    )}
                 </View>
 
-                {/* New Planned Date */}
-                <Text style={styles.label}>
-                    New Planned Date
-                </Text>
-
-                <Pressable
-                    style={styles.dateButton}
-                    onPress={() => setShowDatePicker(true)}
-                >
-                    <Text style={styles.dateButtonText}>
-                        {newDate.toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                        })}
+                {/* NEW PLANNED DATE */}
+                <View style={styles.dateCard}>
+                    <Text style={styles.sectionTitle}>
+                        Choose a New Date
                     </Text>
 
-                    <Text style={styles.calendarIcon}>
-                        ▦
+                    <Text style={styles.helper}>
+                        Select when you would like to plan this purchase.
                     </Text>
-                </Pressable>
 
-                {/* Date Picker */}
-                {showDatePicker && (
-                    <DateTimePicker
-                        value={newDate}
-                        mode="date"
-                        display="default"
-                        minimumDate={new Date()}
-                        onChange={handleDateChange}
-                    />
-                )}
+                    <Pressable
+                        style={styles.dateButton}
+                        onPress={() => setShowDatePicker(true)}
+                        disabled={saving}
+                    >
+                        <View>
+                            <Text style={styles.dateLabel}>
+                                New Planned Date
+                            </Text>
 
-                {/* Save Button */}
+                            <Text style={styles.dateButtonText}>
+                                {formatDate(newDate)}
+                            </Text>
+                        </View>
+
+                        <View style={styles.calendarIconContainer}>
+                            <Text style={styles.calendarIcon}>
+                                ▦
+                            </Text>
+                        </View>
+                    </Pressable>
+
+                    {showDatePicker && (
+                        <DateTimePicker
+                            value={newDate}
+                            mode="date"
+                            display="default"
+                            minimumDate={tomorrow}
+                            onChange={handleDateChange}
+                        />
+                    )}
+                </View>
+
+                {/* SAVE BUTTON */}
                 <Pressable
                     style={[
                         styles.saveButton,
@@ -270,7 +405,6 @@ export default function PostponePurchaseScreen() {
                     )}
                 </Pressable>
 
-                {/* Cancel Button */}
                 <Pressable
                     style={styles.cancelButton}
                     onPress={() => router.back()}
@@ -280,7 +414,7 @@ export default function PostponePurchaseScreen() {
                         Cancel
                     </Text>
                 </Pressable>
-            </View>
+            </ScrollView>
         </SafeAreaView>
     );
 }
@@ -292,9 +426,9 @@ const styles = StyleSheet.create({
     },
 
     content: {
-        flex: 1,
-        padding: 20,
-        paddingTop: 25,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 40,
     },
 
     center: {
@@ -302,81 +436,158 @@ const styles = StyleSheet.create({
         backgroundColor: COLORS.background,
         justifyContent: 'center',
         alignItems: 'center',
+        padding: 20,
         gap: 12,
     },
 
     backText: {
         color: COLORS.gold,
         fontSize: 15,
+        fontWeight: '600',
+        marginBottom: 25,
+    },
+
+    backButton: {
+        backgroundColor: COLORS.card,
+        paddingHorizontal: 22,
+        paddingVertical: 12,
+        borderRadius: 10,
+        marginTop: 15,
+    },
+
+    header: {
         marginBottom: 25,
     },
 
     title: {
         color: COLORS.text,
-        fontSize: 26,
+        fontSize: 27,
         fontWeight: 'bold',
     },
 
     description: {
         color: COLORS.secondary,
         fontSize: 14,
-        marginTop: 10,
-        marginBottom: 25,
+        marginTop: 8,
+        lineHeight: 21,
     },
 
     purchaseCard: {
         backgroundColor: COLORS.card,
-        borderRadius: 15,
-        padding: 18,
-        marginBottom: 28,
+        borderRadius: 17,
+        padding: 19,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#383838',
+    },
+
+    sectionLabel: {
+        color: COLORS.muted,
+        fontSize: 10,
+        fontWeight: 'bold',
+        letterSpacing: 1.5,
+        marginBottom: 13,
     },
 
     purchaseName: {
         color: COLORS.text,
-        fontSize: 19,
+        fontSize: 20,
         fontWeight: 'bold',
         marginBottom: 7,
     },
 
     purchasePrice: {
         color: COLORS.gold,
-        fontSize: 17,
+        fontSize: 20,
         fontWeight: 'bold',
-        marginBottom: 22,
     },
 
-    secondaryText: {
+    divider: {
+        height: 1,
+        backgroundColor: COLORS.track,
+        marginVertical: 18,
+    },
+
+    currentDateLabel: {
         color: COLORS.secondary,
-        fontSize: 13,
+        fontSize: 12,
+        marginBottom: 6,
     },
 
     currentDate: {
         color: COLORS.text,
         fontSize: 15,
-        marginTop: 6,
+        fontWeight: '600',
     },
 
-    label: {
+    overdueBadge: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#583333',
+        borderRadius: 7,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        marginTop: 14,
+    },
+
+    overdueText: {
+        color: '#F0AAAA',
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+
+    dateCard: {
+        backgroundColor: COLORS.card,
+        borderRadius: 17,
+        padding: 19,
+        marginBottom: 25,
+        borderWidth: 1,
+        borderColor: '#383838',
+    },
+
+    sectionTitle: {
         color: COLORS.text,
-        fontSize: 15,
-        fontWeight: '600',
-        marginBottom: 10,
+        fontSize: 17,
+        fontWeight: 'bold',
+        marginBottom: 8,
+    },
+
+    helper: {
+        color: COLORS.muted,
+        fontSize: 12,
+        lineHeight: 18,
+        marginBottom: 17,
     },
 
     dateButton: {
-        backgroundColor: COLORS.card,
+        backgroundColor: COLORS.background,
         borderWidth: 1,
-        borderColor: COLORS.gold,
+        borderColor: COLORS.track,
         borderRadius: 12,
-        padding: 17,
+        padding: 15,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
 
+    dateLabel: {
+        color: COLORS.muted,
+        fontSize: 11,
+        marginBottom: 6,
+    },
+
     dateButtonText: {
         color: COLORS.text,
         fontSize: 15,
+        fontWeight: '600',
+    },
+
+    calendarIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 11,
+        backgroundColor: '#393322',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 
     calendarIcon: {
@@ -386,10 +597,11 @@ const styles = StyleSheet.create({
 
     saveButton: {
         backgroundColor: COLORS.gold,
+        minHeight: 53,
         padding: 16,
         borderRadius: 12,
         alignItems: 'center',
-        marginTop: 35,
+        justifyContent: 'center',
     },
 
     saveButtonText: {
@@ -403,7 +615,7 @@ const styles = StyleSheet.create({
     },
 
     cancelButton: {
-        padding: 15,
+        padding: 16,
         alignItems: 'center',
         marginTop: 5,
     },
@@ -411,5 +623,11 @@ const styles = StyleSheet.create({
     cancelButtonText: {
         color: COLORS.secondary,
         fontSize: 14,
+        fontWeight: '600',
+    },
+
+    secondaryText: {
+        color: COLORS.secondary,
+        fontSize: 13,
     },
 });

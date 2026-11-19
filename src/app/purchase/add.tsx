@@ -1,4 +1,9 @@
 
+import {
+    scheduleAllPurchaseNotifications,
+    cancelAllPurchaseNotifications,
+} from '../../services/notifications/notificationService';
+
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { File, Directory, Paths } from 'expo-file-system';
@@ -19,6 +24,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 
 import type { Purchase, PurchasePriority } from '../../types/purchase';
+
 import {
     getPurchases,
     savePurchases,
@@ -39,6 +45,7 @@ export default function AddPurchaseScreen() {
 
     const [purchaseName, setPurchaseName] = useState('');
     const [estimatedPrice, setEstimatedPrice] = useState('');
+
     const [priority, setPriority] =
         useState<PurchasePriority>('Medium');
 
@@ -47,9 +54,9 @@ export default function AddPurchaseScreen() {
 
     const [savedAmount, setSavedAmount] = useState('');
     const [images, setImages] = useState<string[]>([]);
+
     const [isSaving, setIsSaving] = useState(false);
 
-    // Load existing purchase when editing
     useEffect(() => {
         if (!purchaseId) {
             setIsLoading(false);
@@ -70,12 +77,7 @@ export default function AddPurchaseScreen() {
                     Alert.alert(
                         'Purchase Not Found',
                         'This purchase could not be found.',
-                        [
-                            {
-                                text: 'OK',
-                                onPress: () => router.back(),
-                            },
-                        ]
+                        [{ text: 'OK', onPress: () => router.back() }]
                     );
                     return;
                 }
@@ -83,16 +85,10 @@ export default function AddPurchaseScreen() {
                 if (isActive) {
                     setOriginalPurchase(existingPurchase);
                     setPurchaseName(existingPurchase.name);
-                    setEstimatedPrice(
-                        existingPurchase.estimatedPrice.toString()
-                    );
+                    setEstimatedPrice(existingPurchase.estimatedPrice.toString());
                     setPriority(existingPurchase.priority);
-                    setPlannedDate(
-                        new Date(existingPurchase.plannedDate)
-                    );
-                    setSavedAmount(
-                        existingPurchase.savedAmount.toString()
-                    );
+                    setPlannedDate(new Date(existingPurchase.plannedDate));
+                    setSavedAmount(existingPurchase.savedAmount.toString());
                     setImages(existingPurchase.images ?? []);
                 }
             } catch (error) {
@@ -101,12 +97,7 @@ export default function AddPurchaseScreen() {
                 Alert.alert(
                     'Loading Failed',
                     'Could not load this purchase. Please try again.',
-                    [
-                        {
-                            text: 'OK',
-                            onPress: () => router.back(),
-                        },
-                    ]
+                    [{ text: 'OK', onPress: () => router.back() }]
                 );
             } finally {
                 if (isActive) {
@@ -122,13 +113,10 @@ export default function AddPurchaseScreen() {
         };
     }, [purchaseId]);
 
-    // Select multiple images
     const pickImages = async () => {
         const remainingSlots = MAX_IMAGES - images.length;
 
-        if (remainingSlots <= 0) {
-            return;
-        }
+        if (remainingSlots <= 0) return;
 
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
@@ -152,17 +140,12 @@ export default function AddPurchaseScreen() {
         }
     };
 
-    // Remove an image
     const removeImage = (indexToRemove: number) => {
         setImages((currentImages) =>
-            currentImages.filter(
-                (_, index) => index !== indexToRemove
-            )
+            currentImages.filter((_, index) => index !== indexToRemove)
         );
     };
 
-    // Save newly selected images permanently.
-    // Existing images are kept in their current storage locations.
     const saveImagesPermanently = async (
         currentPurchaseId: string
     ): Promise<string[]> => {
@@ -205,14 +188,12 @@ export default function AddPurchaseScreen() {
             );
 
             await originalFile.copy(destinationFile);
-
             permanentImages.push(destinationFile.uri);
         }
 
         return permanentImages;
     };
 
-    // Validate and save purchase
     const handleSave = async () => {
         const name = purchaseName.trim();
         const price = Number(estimatedPrice);
@@ -222,10 +203,7 @@ export default function AddPurchaseScreen() {
             : Number(savedAmount);
 
         if (!name) {
-            Alert.alert(
-                'Missing Name',
-                'Please enter the purchase name.'
-            );
+            Alert.alert('Missing Name', 'Please enter the purchase name.');
             return;
         }
 
@@ -282,23 +260,46 @@ export default function AddPurchaseScreen() {
             return;
         }
 
+        let newlyScheduledNotifications: {
+            reminderNotificationIds: string[];
+            overdueNotificationId?: string;
+        } | null = null;
+
         try {
             setIsSaving(true);
 
-            // Use the existing ID when editing.
-            // Create a new ID when adding.
             const currentPurchaseId = originalPurchase
                 ? originalPurchase.id
                 : Date.now().toString();
 
-            // Save newly selected images
+            const createdAt = originalPurchase
+                ? originalPurchase.createdAt
+                : new Date().toISOString();
+
             const permanentImages =
                 await saveImagesPermanently(currentPurchaseId);
 
             const purchases = await getPurchases();
 
             if (originalPurchase) {
-                // Update the existing purchase
+                const shouldScheduleNotifications =
+                    originalPurchase.status === 'Active' ||
+                    originalPurchase.status === 'Overdue';
+
+                const notificationData = shouldScheduleNotifications
+                    ? await scheduleAllPurchaseNotifications(
+                        currentPurchaseId,
+                        name,
+                        createdAt,
+                        plannedDate.toISOString()
+                    )
+                    : {
+                        reminderNotificationIds: [],
+                        overdueNotificationId: undefined,
+                    };
+
+                newlyScheduledNotifications = notificationData;
+
                 const updatedPurchase: Purchase = {
                     ...originalPurchase,
                     name,
@@ -307,6 +308,13 @@ export default function AddPurchaseScreen() {
                     plannedDate: plannedDate.toISOString(),
                     savedAmount: savings,
                     images: permanentImages,
+                    reminderNotificationIds:
+                        notificationData.reminderNotificationIds,
+                    overdueNotificationId:
+                        notificationData.overdueNotificationId,
+                    notificationsScheduled:
+                        notificationData.reminderNotificationIds.length > 0 ||
+                        Boolean(notificationData.overdueNotificationId),
                 };
 
                 const updatedPurchases = purchases.map(
@@ -318,28 +326,46 @@ export default function AddPurchaseScreen() {
 
                 await savePurchases(updatedPurchases);
 
+                await cancelAllPurchaseNotifications(
+                    originalPurchase.reminderNotificationIds ?? [],
+                    originalPurchase.overdueNotificationId
+                );
+
+                newlyScheduledNotifications = null;
+
                 Alert.alert(
                     'Purchase Updated',
                     'Your purchase has been updated successfully.',
-                    [
-                        {
-                            text: 'OK',
-                            onPress: () => router.back(),
-                        },
-                    ]
+                    [{ text: 'OK', onPress: () => router.back() }]
                 );
             } else {
-                // Create a new purchase
+                const notificationData =
+                    await scheduleAllPurchaseNotifications(
+                        currentPurchaseId,
+                        name,
+                        createdAt,
+                        plannedDate.toISOString()
+                    );
+
+                newlyScheduledNotifications = notificationData;
+
                 const newPurchase: Purchase = {
                     id: currentPurchaseId,
                     name,
                     estimatedPrice: price,
                     priority,
                     plannedDate: plannedDate.toISOString(),
-                    createdAt: new Date().toISOString(),
+                    createdAt,
                     savedAmount: savings,
                     images: permanentImages,
                     status: 'Active',
+                    reminderNotificationIds:
+                        notificationData.reminderNotificationIds,
+                    overdueNotificationId:
+                        notificationData.overdueNotificationId,
+                    notificationsScheduled:
+                        notificationData.reminderNotificationIds.length > 0 ||
+                        Boolean(notificationData.overdueNotificationId),
                 };
 
                 await savePurchases([
@@ -347,19 +373,23 @@ export default function AddPurchaseScreen() {
                     newPurchase,
                 ]);
 
+                newlyScheduledNotifications = null;
+
                 Alert.alert(
                     'Purchase Saved',
                     'Your purchase has been saved successfully.',
-                    [
-                        {
-                            text: 'OK',
-                            onPress: () => router.back(),
-                        },
-                    ]
+                    [{ text: 'OK', onPress: () => router.back() }]
                 );
             }
         } catch (error) {
             console.error('Error saving purchase:', error);
+
+            if (newlyScheduledNotifications) {
+                await cancelAllPurchaseNotifications(
+                    newlyScheduledNotifications.reminderNotificationIds,
+                    newlyScheduledNotifications.overdueNotificationId
+                );
+            }
 
             Alert.alert(
                 'Save Failed',
@@ -373,16 +403,13 @@ export default function AddPurchaseScreen() {
     if (isLoading) {
         return (
             <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>
-                    Loading purchase...
-                </Text>
+                <Text style={styles.loadingText}>Loading purchase...</Text>
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <Pressable
                     style={styles.backButton}
@@ -402,8 +429,8 @@ export default function AddPurchaseScreen() {
                 style={styles.scrollView}
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
             >
-                {/* Introduction */}
                 <View style={styles.intro}>
                     <Text style={styles.title}>
                         {isEditing
@@ -418,40 +445,33 @@ export default function AddPurchaseScreen() {
                     </Text>
                 </View>
 
-                {/* Form */}
                 <View style={styles.formCard}>
                     <Text style={styles.formTitle}>
                         Purchase Information
                     </Text>
 
-                    <Text style={styles.inputLabel}>
-                        Purchase Name
-                    </Text>
+                    <Text style={styles.inputLabel}>Purchase Name</Text>
 
                     <TextInput
                         style={styles.input}
                         placeholder="e.g. Wireless Headphones"
-                        placeholderTextColor="#9AA2B1"
+                        placeholderTextColor="#85827B"
                         value={purchaseName}
                         onChangeText={setPurchaseName}
                     />
 
-                    <Text style={styles.inputLabel}>
-                        Estimated Price
-                    </Text>
+                    <Text style={styles.inputLabel}>Estimated Price</Text>
 
                     <TextInput
                         style={styles.input}
                         placeholder="Enter estimated price"
-                        placeholderTextColor="#9AA2B1"
+                        placeholderTextColor="#85827B"
                         value={estimatedPrice}
                         onChangeText={setEstimatedPrice}
                         keyboardType="decimal-pad"
                     />
 
-                    <Text style={styles.inputLabel}>
-                        Purchase Priority
-                    </Text>
+                    <Text style={styles.inputLabel}>Purchase Priority</Text>
 
                     <View style={styles.priorityContainer}>
                         {(['Low', 'Medium', 'High'] as const).map((item) => (
@@ -486,17 +506,14 @@ export default function AddPurchaseScreen() {
                         <Text style={styles.dateButtonText}>
                             {plannedDate.toLocaleDateString()}
                         </Text>
-
-                        <Text style={styles.calendarIcon}>📅</Text>
+                        <Text style={styles.calendarIcon}>▦</Text>
                     </Pressable>
 
                     {showDatePicker && (
                         <DateTimePicker
                             value={plannedDate}
                             mode="date"
-                            minimumDate={
-                                isEditing ? undefined : new Date()
-                            }
+                            minimumDate={isEditing ? undefined : new Date()}
                             display="default"
                             onChange={(event, selectedDate) => {
                                 setShowDatePicker(false);
@@ -508,75 +525,71 @@ export default function AddPurchaseScreen() {
                         />
                     )}
 
-                    <Text style={styles.inputLabel}>
-                        Amount Saved
-                    </Text>
+                    <Text style={styles.inputLabel}>Amount Saved</Text>
 
                     <TextInput
                         style={styles.input}
                         placeholder="Enter amount already saved"
-                        placeholderTextColor="#9AA2B1"
+                        placeholderTextColor="#85827B"
                         value={savedAmount}
                         onChangeText={setSavedAmount}
                         keyboardType="decimal-pad"
                     />
 
-                    {/* Product Images */}
-                    <Text style={styles.inputLabel}>
-                        Product Images
-                    </Text>
+                    <View style={styles.imageSection}>
+                        <Text style={styles.inputLabel}>Product Images</Text>
 
-                    <Text style={styles.imageCounter}>
-                        {images.length}/{MAX_IMAGES} images selected
-                    </Text>
-
-                    <Pressable
-                        style={[
-                            styles.imagePickerButton,
-                            images.length >= MAX_IMAGES &&
-                                styles.disabledImageButton,
-                        ]}
-                        onPress={pickImages}
-                        disabled={images.length >= MAX_IMAGES}
-                    >
-                        <Text style={styles.imagePickerButtonText}>
-                            {images.length >= MAX_IMAGES
-                                ? 'Maximum 5 Images Selected'
-                                : '+ Add Product Images'}
+                        <Text style={styles.imageCounter}>
+                            {images.length}/{MAX_IMAGES} images selected
                         </Text>
-                    </Pressable>
 
-                    {images.length > 0 && (
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={styles.imageList}
+                        <Pressable
+                            style={[
+                                styles.imagePickerButton,
+                                images.length >= MAX_IMAGES &&
+                                    styles.disabledImageButton,
+                            ]}
+                            onPress={pickImages}
+                            disabled={images.length >= MAX_IMAGES}
                         >
-                            {images.map((imageUri, index) => (
-                                <View
-                                    key={`${imageUri}-${index}`}
-                                    style={styles.imageContainer}
-                                >
-                                    <Image
-                                        source={{ uri: imageUri }}
-                                        style={styles.productImage}
-                                    />
+                            <Text style={styles.imagePickerButtonText}>
+                                {images.length >= MAX_IMAGES
+                                    ? 'Maximum 5 Images Selected'
+                                    : '+ Add Product Images'}
+                            </Text>
+                        </Pressable>
 
-                                    <Pressable
-                                        style={styles.removeImageButton}
-                                        onPress={() => removeImage(index)}
+                        {images.length > 0 && (
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                style={styles.imageList}
+                            >
+                                {images.map((imageUri, index) => (
+                                    <View
+                                        key={`${imageUri}-${index}`}
+                                        style={styles.imageContainer}
                                     >
-                                        <Text style={styles.removeImageText}>
-                                            ×
-                                        </Text>
-                                    </Pressable>
-                                </View>
-                            ))}
-                        </ScrollView>
-                    )}
+                                        <Image
+                                            source={{ uri: imageUri }}
+                                            style={styles.productImage}
+                                        />
+
+                                        <Pressable
+                                            style={styles.removeImageButton}
+                                            onPress={() => removeImage(index)}
+                                        >
+                                            <Text style={styles.removeImageText}>
+                                                ×
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                ))}
+                            </ScrollView>
+                        )}
+                    </View>
                 </View>
 
-                {/* Save Button */}
                 <Pressable
                     style={[
                         styles.saveButton,
@@ -601,19 +614,19 @@ export default function AddPurchaseScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F7F8FC',
+        backgroundColor: '#101114',
     },
 
     loadingContainer: {
         flex: 1,
-        backgroundColor: '#F7F8FC',
+        backgroundColor: '#101114',
         alignItems: 'center',
         justifyContent: 'center',
     },
 
     loadingText: {
         fontSize: 15,
-        color: '#7B8497',
+        color: '#B5B1A7',
     },
 
     scrollView: {
@@ -622,7 +635,7 @@ const styles = StyleSheet.create({
 
     content: {
         paddingHorizontal: 20,
-        paddingTop: 10,
+        paddingTop: 12,
         paddingBottom: 40,
     },
 
@@ -633,27 +646,29 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingTop: 55,
         paddingBottom: 15,
-        backgroundColor: '#F7F8FC',
+        backgroundColor: '#101114',
     },
 
     backButton: {
         width: 42,
         height: 42,
-        borderRadius: 12,
-        backgroundColor: '#FFFFFF',
+        borderRadius: 13,
+        backgroundColor: '#242426',
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#353330',
     },
 
     backText: {
         fontSize: 27,
-        color: '#17233D',
+        color: '#D6B66C',
     },
 
     headerTitle: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#17233D',
+        color: '#F7F4EC',
     },
 
     headerSpacer: {
@@ -667,47 +682,47 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 23,
         fontWeight: 'bold',
-        color: '#17233D',
+        color: '#F7F4EC',
     },
 
     subtitle: {
         fontSize: 14,
-        color: '#7B8497',
+        color: '#B5B1A7',
         marginTop: 8,
         lineHeight: 21,
     },
 
     formCard: {
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#242426',
         borderRadius: 18,
         padding: 18,
         borderWidth: 1,
-        borderColor: '#EEF0F5',
+        borderColor: '#353330',
     },
 
     formTitle: {
         fontSize: 17,
         fontWeight: 'bold',
-        color: '#17233D',
+        color: '#FFF4D6',
         marginBottom: 15,
     },
 
     inputLabel: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#17233D',
+        color: '#F7F4EC',
         marginBottom: 8,
         marginTop: 12,
     },
 
     input: {
-        backgroundColor: '#F7F8FC',
+        backgroundColor: '#18191C',
         borderWidth: 1,
-        borderColor: '#E5E9F0',
+        borderColor: '#49443A',
         borderRadius: 12,
         padding: 14,
         fontSize: 14,
-        color: '#17233D',
+        color: '#F7F4EC',
         marginBottom: 15,
     },
 
@@ -723,33 +738,33 @@ const styles = StyleSheet.create({
         paddingVertical: 13,
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: '#E5E9F0',
-        backgroundColor: '#F7F8FC',
+        borderColor: '#49443A',
+        backgroundColor: '#18191C',
         alignItems: 'center',
     },
 
     selectedPriority: {
-        backgroundColor: '#2878D0',
-        borderColor: '#2878D0',
+        backgroundColor: '#D6B66C',
+        borderColor: '#D6B66C',
     },
 
     priorityText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#7B8497',
+        color: '#B5B1A7',
     },
 
     selectedPriorityText: {
-        color: '#FFFFFF',
+        color: '#101114',
     },
 
     dateButton: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        backgroundColor: '#F7F8FC',
+        backgroundColor: '#18191C',
         borderWidth: 1,
-        borderColor: '#E5E9F0',
+        borderColor: '#49443A',
         borderRadius: 12,
         padding: 14,
         marginTop: 5,
@@ -757,23 +772,28 @@ const styles = StyleSheet.create({
 
     dateButtonText: {
         fontSize: 14,
-        color: '#17233D',
+        color: '#F7F4EC',
     },
 
     calendarIcon: {
-        fontSize: 20,
+        fontSize: 21,
+        color: '#D6B66C',
+    },
+
+    imageSection: {
+        marginTop: 5,
     },
 
     imageCounter: {
         fontSize: 12,
-        color: '#7B8497',
+        color: '#B5B1A7',
         marginBottom: 8,
     },
 
     imagePickerButton: {
-        backgroundColor: '#F0F6FF',
+        backgroundColor: '#18191C',
         borderWidth: 1,
-        borderColor: '#2878D0',
+        borderColor: '#D6B66C',
         borderStyle: 'dashed',
         borderRadius: 12,
         padding: 16,
@@ -786,7 +806,7 @@ const styles = StyleSheet.create({
     },
 
     imagePickerButtonText: {
-        color: '#2878D0',
+        color: '#D6B66C',
         fontSize: 14,
         fontWeight: '600',
     },
@@ -814,20 +834,20 @@ const styles = StyleSheet.create({
         width: 25,
         height: 25,
         borderRadius: 13,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#F7F4EC',
         alignItems: 'center',
         justifyContent: 'center',
     },
 
     removeImageText: {
         fontSize: 20,
-        color: '#E04444',
+        color: '#E47777',
         fontWeight: 'bold',
         lineHeight: 23,
     },
 
     saveButton: {
-        backgroundColor: '#2878D0',
+        backgroundColor: '#D6B66C',
         padding: 17,
         borderRadius: 14,
         alignItems: 'center',
@@ -835,7 +855,7 @@ const styles = StyleSheet.create({
     },
 
     saveButtonText: {
-        color: '#FFFFFF',
+        color: '#101114',
         fontSize: 15,
         fontWeight: 'bold',
     },

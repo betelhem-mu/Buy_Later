@@ -31,6 +31,7 @@ const COLORS = {
     muted: '#85827B',
     red: '#E47777',
     track: '#49443A',
+    green: '#A9D0AE',
 };
 
 export default function PlansScreen() {
@@ -42,21 +43,29 @@ export default function PlansScreen() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
 
-    // Load purchases whenever this screen becomes active
-    const loadPurchases = async () => {
+    const formatDate = (dateString: string) => {
+        const date = new Date(`${dateString.slice(0, 10)}T00:00:00`);
+        return date.toLocaleDateString();
+    };
+
+    const loadPurchases = useCallback(async () => {
         try {
             setError(false);
 
             const savedPurchases = await getPurchases();
-
-            // Update overdue purchases
             const today = new Date();
-            today.setHours(0, 0, 0, 0);
+
+            const currentYearMonth =
+                `${today.getFullYear()}-${String(
+                    today.getMonth() + 1
+                ).padStart(2, '0')}`;
 
             const updatedPurchases = savedPurchases.map((purchase) => {
+                const plannedYearMonth = purchase.plannedDate.slice(0, 7);
+
                 if (
                     purchase.status === 'Active' &&
-                    new Date(purchase.plannedDate) < today
+                    plannedYearMonth < currentYearMonth
                 ) {
                     return {
                         ...purchase,
@@ -69,13 +78,12 @@ export default function PlansScreen() {
 
             setPurchases(updatedPurchases);
 
-            // Save automatic overdue updates
-            if (
-                updatedPurchases.some(
-                    (purchase, index) =>
-                        purchase.status !== savedPurchases[index].status
-                )
-            ) {
+            const hasChanges = updatedPurchases.some(
+                (purchase, index) =>
+                    purchase.status !== savedPurchases[index].status
+            );
+
+            if (hasChanges) {
                 await savePurchases(updatedPurchases);
             }
         } catch (error) {
@@ -84,16 +92,15 @@ export default function PlansScreen() {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
     useFocusEffect(
         useCallback(() => {
             setLoading(true);
             loadPurchases();
-        }, [])
+        }, [loadPurchases])
     );
 
-    // Filter purchases
     const filteredPurchases = purchases.filter((purchase) => {
         if (activeFilter === 'All') {
             return true;
@@ -124,11 +131,6 @@ export default function PlansScreen() {
         );
     };
 
-    const getStatusLabel = (status: PurchaseStatus) => {
-        return status === 'Overdue' ? 'Overdue' : status;
-    };
-
-    // Open the selected purchase details
     const openPurchaseDetails = (purchaseId: string) => {
         router.push({
             pathname: '/purchase/[id]',
@@ -136,8 +138,53 @@ export default function PlansScreen() {
         });
     };
 
+    const getPriceDifference = (purchase: Purchase) => {
+        if (purchase.actualPrice === undefined) {
+            return null;
+        }
+
+        const difference =
+            purchase.actualPrice - purchase.estimatedPrice;
+
+        if (difference > 0) {
+            return {
+                text: `${formatPrice(difference)} over estimate`,
+                color: COLORS.red,
+            };
+        }
+
+        if (difference < 0) {
+            return {
+                text: `${formatPrice(Math.abs(difference))} under estimate`,
+                color: COLORS.green,
+            };
+        }
+
+        return {
+            text: 'Purchased at estimated price',
+            color: COLORS.green,
+        };
+    };
+
+    const getStatusStyle = (status: PurchaseStatus) => {
+        switch (status) {
+            case 'Overdue':
+                return styles.overdueBadge;
+
+            case 'Purchased':
+                return styles.purchasedBadge;
+
+            case 'Cancelled':
+                return styles.cancelledBadge;
+
+            default:
+                return styles.activeBadge;
+        }
+    };
+
     const renderPurchase = (purchase: Purchase) => {
         const progress = getProgress(purchase);
+        const priceDifference = getPriceDifference(purchase);
 
         return (
             <Pressable
@@ -186,11 +233,10 @@ export default function PlansScreen() {
                             <Text
                                 style={[
                                     styles.statusBadge,
-                                    purchase.status === 'Overdue' &&
-                                        styles.overdueBadge,
+                                    getStatusStyle(purchase.status),
                                 ]}
                             >
-                                {getStatusLabel(purchase.status)}
+                                {purchase.status}
                             </Text>
                         </View>
                     </View>
@@ -202,11 +248,48 @@ export default function PlansScreen() {
                     </Text>
 
                     <Text style={styles.detailValue}>
-                        {new Date(
-                            purchase.plannedDate
-                        ).toLocaleDateString()}
+                        {formatDate(purchase.plannedDate)}
                     </Text>
                 </View>
+
+                {purchase.status === 'Purchased' && (
+                    <View style={styles.purchasedInformation}>
+                        <View style={styles.informationRow}>
+                            <Text style={styles.detailLabel}>
+                                Purchase Date
+                            </Text>
+
+                            <Text style={styles.detailValue}>
+                                {purchase.purchasedAt
+                                    ? formatDate(purchase.purchasedAt)
+                                    : 'Not recorded'}
+                            </Text>
+                        </View>
+
+                        <View style={styles.informationRow}>
+                            <Text style={styles.detailLabel}>
+                                Actual Price
+                            </Text>
+
+                            <Text style={styles.actualPrice}>
+                                {purchase.actualPrice !== undefined
+                                    ? formatPrice(purchase.actualPrice)
+                                    : 'Not recorded'}
+                            </Text>
+                        </View>
+
+                        {priceDifference && (
+                            <Text
+                                style={[
+                                    styles.priceDifference,
+                                    { color: priceDifference.color },
+                                ]}
+                            >
+                                {priceDifference.text}
+                            </Text>
+                        )}
+                    </View>
+                )}
 
                 <View style={styles.savingsHeader}>
                     <Text style={styles.detailLabel}>
@@ -266,7 +349,7 @@ export default function PlansScreen() {
                 </Text>
             </View>
 
-            {/* Filters */}
+            {/* FILTER BUTTONS */}
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -298,13 +381,13 @@ export default function PlansScreen() {
                 )}
             </ScrollView>
 
-            {/* Purchase List */}
             {loading ? (
                 <View style={styles.centerContainer}>
                     <ActivityIndicator
                         size="large"
                         color={COLORS.gold}
                     />
+
                     <Text style={styles.loadingText}>
                         Loading your purchases...
                     </Text>
@@ -330,7 +413,9 @@ export default function PlansScreen() {
             ) : filteredPurchases.length === 0 ? (
                 <View style={styles.centerContainer}>
                     <Text style={styles.emptyTitle}>
-                        No {activeFilter === 'All' ? '' : activeFilter.toLowerCase() + ' '}purchases yet
+                        {activeFilter === 'All'
+                            ? 'No purchases yet'
+                            : `No ${activeFilter.toLowerCase()} purchases yet`}
                     </Text>
 
                     <Text style={styles.emptySubtitle}>
@@ -343,7 +428,10 @@ export default function PlansScreen() {
                     contentContainerStyle={styles.listContent}
                 >
                     <Text style={styles.resultCount}>
-                        {filteredPurchases.length} purchases
+                        {filteredPurchases.length}{' '}
+                        {filteredPurchases.length === 1
+                            ? 'purchase'
+                            : 'purchases'}
                     </Text>
 
                     {filteredPurchases.map(renderPurchase)}
@@ -377,31 +465,45 @@ const styles = StyleSheet.create({
         marginTop: 7,
     },
 
+    // FIXED FILTER CONTAINER
     filterScroll: {
+        height: 54,
         flexGrow: 0,
+        flexShrink: 0,
         marginBottom: 15,
     },
 
     filterContainer: {
         paddingHorizontal: 20,
+        alignItems: 'center',
+        height: 54,
         gap: 10,
     },
 
+    // FIXED FILTER BUTTON
     filterButton: {
-        paddingVertical: 10,
+        height: 42,
+        minWidth: 82,
         paddingHorizontal: 18,
-        borderRadius: 20,
+        borderRadius: 22,
         backgroundColor: COLORS.card,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 
     selectedFilter: {
         backgroundColor: COLORS.gold,
     },
 
+    // FIXED FILTER TEXT
     filterText: {
         color: COLORS.secondary,
         fontSize: 13,
+        lineHeight: 18,
         fontWeight: '600',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+        textAlign: 'center',
     },
 
     selectedFilterText: {
@@ -486,6 +588,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         borderRadius: 6,
         overflow: 'hidden',
+        includeFontPadding: false,
     },
 
     highPriority: {
@@ -510,11 +613,25 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         borderRadius: 6,
         overflow: 'hidden',
-        backgroundColor: '#343436',
-        color: COLORS.secondary,
+        includeFontPadding: false,
+    },
+
+    activeBadge: {
+        backgroundColor: '#343F36',
+        color: COLORS.green,
     },
 
     overdueBadge: {
+        backgroundColor: '#583333',
+        color: COLORS.red,
+    },
+
+    purchasedBadge: {
+        backgroundColor: '#343F36',
+        color: COLORS.green,
+    },
+
+    cancelledBadge: {
         backgroundColor: '#583333',
         color: COLORS.red,
     },
@@ -534,6 +651,33 @@ const styles = StyleSheet.create({
     detailValue: {
         color: COLORS.text,
         fontSize: 12,
+        fontWeight: '600',
+        textAlign: 'right',
+    },
+
+    purchasedInformation: {
+        backgroundColor: COLORS.background,
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 17,
+        gap: 12,
+    },
+
+    informationRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 10,
+    },
+
+    actualPrice: {
+        color: COLORS.gold,
+        fontSize: 13,
+        fontWeight: 'bold',
+    },
+
+    priceDifference: {
+        fontSize: 11,
         fontWeight: '600',
     },
 
@@ -566,6 +710,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 9,
+        gap: 10,
     },
 
     imageCount: {
