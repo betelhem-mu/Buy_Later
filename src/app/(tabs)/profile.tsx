@@ -399,8 +399,6 @@ export default function ProfileScreen() {
                     Manage your account and preferences.
                 </Text>
 
-                {/* PROFILE INFORMATION */}
-
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>
                         PROFILE INFORMATION
@@ -428,8 +426,6 @@ export default function ProfileScreen() {
                         </View>
                     </View>
                 </View>
-
-                {/* NOTIFICATIONS */}
 
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>
@@ -477,8 +473,6 @@ export default function ProfileScreen() {
                         be cancelled. You can enable them again anytime.
                     </Text>
                 </View>
-
-                {/* ACCOUNT */}
 
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>
@@ -543,8 +537,6 @@ export default function ProfileScreen() {
                     </View>
                 </View>
             </ScrollView>
-
-            {/* EDIT PROFILE MODAL */}
 
             <Modal
                 visible={editModalVisible}
@@ -620,8 +612,6 @@ export default function ProfileScreen() {
                     </View>
                 </KeyboardAvoidingView>
             </Modal>
-
-            {/* CHANGE PASSWORD MODAL */}
 
             <Modal
                 visible={passwordModalVisible}

@@ -14,7 +14,11 @@ import {
     getPurchases,
     savePurchases,
 } from '../../services/purchaseStorage';
+import { getMonthlyLimit } from '../../services/monthlyLimitStorage';
+import { getActivities } from '../../services/activityStorage';
 import type { Purchase } from '../../types/purchase';
+import type { PurchaseActivity } from '../../types/activity';
+import { useAuth } from '../../contexts/AuthContext';
 
 const COLORS = {
     background: '#101114',
@@ -30,71 +34,49 @@ const COLORS = {
     danger: '#E47777',
 };
 
-const statistics = [
-    {
-        id: 'plans',
-        icon: '▣',
-        value: '8',
-        label: 'Planned purchases',
-    },
-    {
-        id: 'remaining',
-        icon: '◈',
-        value: 'ETB 5,800',
-        label: 'Remaining to save',
-    },
-];
-
-const upcomingPurchases = [
-    {
-        id: '1',
-        name: 'Wireless Headphones',
-        price: 'ETB 4,500',
-        saved: 'ETB 2,000',
-        date: 'December 15, 2026',
-        progress: 44,
-        priority: 'High',
-        icon: '♫',
-    },
-    {
-        id: '2',
-        name: 'Running Shoes',
-        price: 'ETB 3,200',
-        saved: 'ETB 1,000',
-        date: 'December 25, 2026',
-        progress: 31,
-        priority: 'Medium',
-        icon: '◉',
-    },
-];
-
-const recentActivities = [
-    {
-        id: '1',
-        title: 'Savings updated',
-        description: 'Wireless Headphones',
-        amount: '+ ETB 500',
-        date: 'Today',
-    },
-    {
-        id: '2',
-        title: 'New purchase planned',
-        description: 'Running Shoes',
-        amount: 'ETB 3,200',
-        date: 'Yesterday',
-    },
-];
-
-const monthlyLimit = {
-    total: 10000,
-    planned: 6500,
-};
-
 const formatMoney = (amount: number) =>
     `ETB ${amount.toLocaleString('en-US')}`;
 
+const formatActivityDate = (dateString: string) => {
+    const activityDate = new Date(dateString);
+    const today = new Date();
+
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    if (activityDate.toDateString() === today.toDateString()) {
+        return 'Today';
+    }
+
+    if (activityDate.toDateString() === yesterday.toDateString()) {
+        return 'Yesterday';
+    }
+
+    return activityDate.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+};
+
+const formatActivityAmount = (activity: PurchaseActivity) => {
+    if (activity.amount === undefined) {
+        return null;
+    }
+
+    const amount = formatMoney(activity.amount);
+
+    if (activity.type === 'Savings updated') {
+        return `+ ${amount}`;
+    }
+
+    return amount;
+};
+
 export default function HomeScreen() {
-    const userName = 'Betty';
+    const { user } = useAuth();
+
+    const userName = user?.name?.trim() || 'User';
 
     const [savings, setSavings] = useState({
         saved: 0,
@@ -102,6 +84,16 @@ export default function HomeScreen() {
     });
 
     const [overduePurchases, setOverduePurchases] = useState<Purchase[]>([]);
+
+    const [upcomingPurchases, setUpcomingPurchases] = useState<Purchase[]>([]);
+
+    const [plannedPurchaseCount, setPlannedPurchaseCount] = useState(0);
+
+    const [monthlyLimit, setMonthlyLimit] = useState<number | null>(null);
+
+    const [monthlyPlannedSpending, setMonthlyPlannedSpending] = useState(0);
+
+    const [activities, setActivities] = useState<PurchaseActivity[]>([]);
 
     useFocusEffect(
         useCallback(() => {
@@ -111,14 +103,20 @@ export default function HomeScreen() {
                 try {
                     const purchases = await getPurchases();
 
-                    // Update overdue purchases based on the planned month
                     const today = new Date();
 
-                    const currentYearMonth =
+                    const todayKey =
                         `${today.getFullYear()}-${String(
                             today.getMonth() + 1
+                        ).padStart(2, '0')}-${String(
+                            today.getDate()
                         ).padStart(2, '0')}`;
 
+                    const currentYearMonth = todayKey.slice(0, 7);
+
+                    const savedLimit = await getMonthlyLimit(currentYearMonth);
+
+                    // Automatically update overdue purchases
                     const updatedPurchases = purchases.map((purchase) => {
                         const plannedYearMonth =
                             purchase.plannedDate.slice(0, 7);
@@ -146,29 +144,57 @@ export default function HomeScreen() {
                         await savePurchases(updatedPurchases);
                     }
 
-                    // Calculate savings from active and overdue purchases
+                    // Get Active and Overdue purchases
                     const activePurchases = updatedPurchases.filter(
                         (purchase) =>
                             purchase.status === 'Active' ||
                             purchase.status === 'Overdue'
                     );
 
+                    // Calculate total savings
                     const totalSaved = activePurchases.reduce(
                         (total, purchase) =>
                             total + purchase.savedAmount,
                         0
                     );
 
+                    // Calculate total savings goal
                     const totalGoal = activePurchases.reduce(
                         (total, purchase) =>
                             total + purchase.estimatedPrice,
                         0
                     );
 
-                    // Get actual overdue purchases
+                    // Get overdue purchases
                     const overdueItems = updatedPurchases.filter(
                         (purchase) => purchase.status === 'Overdue'
                     );
+
+                    // Get purchases planned for the current month
+                    const currentMonthPurchases = updatedPurchases.filter(
+                        (purchase) =>
+                            purchase.plannedDate.slice(0, 7) === currentYearMonth &&
+                            (purchase.status === 'Active' ||
+                                purchase.status === 'Overdue')
+                    );
+
+                    // Calculate current month's planned spending
+                    const plannedSpending = currentMonthPurchases.reduce(
+                        (total, purchase) =>
+                            total + purchase.estimatedPrice,
+                        0
+                    );
+
+                    // Get upcoming Active purchases
+                    const upcomingItems = updatedPurchases
+                        .filter(
+                            (purchase) =>
+                                purchase.status === 'Active' &&
+                                purchase.plannedDate >= todayKey
+                        )
+                        .sort((a, b) =>
+                            a.plannedDate.localeCompare(b.plannedDate)
+                        );
 
                     if (isActive) {
                         setSavings({
@@ -177,6 +203,28 @@ export default function HomeScreen() {
                         });
 
                         setOverduePurchases(overdueItems);
+
+                        setUpcomingPurchases(upcomingItems);
+
+                        setPlannedPurchaseCount(activePurchases.length);
+
+                        setMonthlyLimit(savedLimit);
+
+                        setMonthlyPlannedSpending(plannedSpending);
+                    }
+
+                    // Load real recent activities
+                    try {
+                        const loadedActivities = await getActivities();
+
+                        if (isActive) {
+                            setActivities(loadedActivities);
+                        }
+                    } catch (error) {
+                        console.error(
+                            'Error loading recent activities:',
+                            error
+                        );
                     }
                 } catch (error) {
                     console.error(
@@ -211,18 +259,40 @@ export default function HomeScreen() {
             )
             : 0;
 
-    const spendingPercentage = Math.min(
-        (monthlyLimit.planned / monthlyLimit.total) * 100,
-        100
-    );
+    const spendingPercentage =
+        monthlyLimit !== null && monthlyLimit > 0
+            ? Math.min(
+                (monthlyPlannedSpending / monthlyLimit) * 100,
+                100
+            )
+            : monthlyPlannedSpending > 0
+                ? 100
+                : 0;
 
     const remainingLimit =
-        monthlyLimit.total - monthlyLimit.planned;
+        monthlyLimit !== null
+            ? monthlyLimit - monthlyPlannedSpending
+            : null;
 
     const remainingToSave = Math.max(
         savings.goal - savings.saved,
         0
     );
+
+    const statistics = [
+        {
+            id: 'plans',
+            icon: '▣',
+            value: String(plannedPurchaseCount),
+            label: 'Planned purchases',
+        },
+        {
+            id: 'remaining',
+            icon: '◈',
+            value: formatMoney(remainingToSave),
+            label: 'Remaining to save',
+        },
+    ];
 
     const openPurchaseDetails = (purchaseId: string) => {
         router.push({
@@ -230,6 +300,8 @@ export default function HomeScreen() {
             params: { id: purchaseId },
         });
     };
+
+    const recentActivities = activities.slice(0, 5);
 
     return (
         <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -337,46 +409,69 @@ export default function HomeScreen() {
                                 </Text>
                             </View>
 
-                            <Text style={styles.goldAmount}>
-                                {formatMoney(monthlyLimit.total)}
-                            </Text>
+                            {monthlyLimit !== null && (
+                                <Text style={styles.goldAmount}>
+                                    {formatMoney(monthlyLimit)}
+                                </Text>
+                            )}
                         </View>
 
                         <View style={styles.limitCard}>
-                            <View style={styles.limitAmounts}>
-                                <View>
-                                    <Text style={styles.smallLabel}>
-                                        Planned spending
+                            {monthlyLimit === null ? (
+                                <Text style={styles.emptyText}>
+                                    You haven't set a purchase limit for this month yet.
+                                    Set one in the Planner.
+                                </Text>
+                            ) : (
+                                <>
+                                    <View style={styles.limitAmounts}>
+                                        <View>
+                                            <Text style={styles.smallLabel}>
+                                                Planned spending
+                                            </Text>
+
+                                            <Text style={styles.limitValue}>
+                                                {formatMoney(monthlyPlannedSpending)}
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.remainingContainer}>
+                                            <Text style={styles.smallLabel}>
+                                                {remainingLimit !== null && remainingLimit < 0
+                                                    ? 'Over limit'
+                                                    : 'Remaining'}
+                                            </Text>
+
+                                            <Text
+                                                style={[
+                                                    styles.remainingValue,
+                                                    remainingLimit !== null &&
+                                                        remainingLimit < 0 && {
+                                                            color: COLORS.danger,
+                                                        },
+                                                ]}
+                                            >
+                                                {formatMoney(
+                                                    Math.abs(remainingLimit ?? 0)
+                                                )}
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.limitProgressTrack}>
+                                        <View
+                                            style={[
+                                                styles.limitProgressFill,
+                                                { width: `${spendingPercentage}%` },
+                                            ]}
+                                        />
+                                    </View>
+
+                                    <Text style={styles.limitFooter}>
+                                        {Math.round(spendingPercentage)}% of your monthly limit used
                                     </Text>
-
-                                    <Text style={styles.limitValue}>
-                                        {formatMoney(monthlyLimit.planned)}
-                                    </Text>
-                                </View>
-
-                                <View style={styles.remainingContainer}>
-                                    <Text style={styles.smallLabel}>
-                                        Remaining
-                                    </Text>
-
-                                    <Text style={styles.remainingValue}>
-                                        {formatMoney(remainingLimit)}
-                                    </Text>
-                                </View>
-                            </View>
-
-                            <View style={styles.limitProgressTrack}>
-                                <View
-                                    style={[
-                                        styles.limitProgressFill,
-                                        { width: `${spendingPercentage}%` },
-                                    ]}
-                                />
-                            </View>
-
-                            <Text style={styles.limitFooter}>
-                                {Math.round(spendingPercentage)}% of your monthly limit used
-                            </Text>
+                                </>
+                            )}
                         </View>
                     </View>
 
@@ -473,59 +568,85 @@ export default function HomeScreen() {
                             </Pressable>
                         </View>
 
-                        {upcomingPurchases.map((item) => (
-                            <Pressable
-                                key={item.id}
-                                style={styles.upcomingCard}
-                                onPress={() => router.push('/(tabs)/plans')}
-                            >
-                                <View style={styles.productImagePlaceholder}>
-                                    <Text style={styles.productIcon}>
-                                        {item.icon}
-                                    </Text>
-                                </View>
+                        {upcomingPurchases.length > 0 ? (
+                            upcomingPurchases.map((item) => {
+                                const progress =
+                                    item.estimatedPrice > 0
+                                        ? Math.min(
+                                            (item.savedAmount / item.estimatedPrice) * 100,
+                                            100
+                                        )
+                                        : 0;
 
-                                <View style={styles.upcomingInfo}>
-                                    <Text style={styles.purchaseName}>
-                                        {item.name}
-                                    </Text>
-
-                                    <Text style={styles.purchaseDate}>
-                                        {item.date}
-                                    </Text>
-
-                                    <Text style={styles.purchasePrice}>
-                                        {item.price}
-                                    </Text>
-
-                                    <View style={styles.purchaseProgressTrack}>
-                                        <View
-                                            style={[
-                                                styles.purchaseProgressFill,
-                                                { width: `${item.progress}%` },
-                                            ]}
-                                        />
-                                    </View>
-
-                                    <Text style={styles.savedText}>
-                                        {item.saved} saved · {item.progress}%
-                                    </Text>
-                                </View>
-
-                                <View style={styles.priorityContainer}>
-                                    <Text
-                                        style={[
-                                            styles.priorityText,
-                                            item.priority === 'High'
-                                                ? styles.highPriority
-                                                : styles.mediumPriority,
-                                        ]}
+                                return (
+                                    <Pressable
+                                        key={item.id}
+                                        style={styles.upcomingCard}
+                                        onPress={() => openPurchaseDetails(item.id)}
                                     >
-                                        {item.priority}
-                                    </Text>
-                                </View>
-                            </Pressable>
-                        ))}
+                                        <View style={styles.productImagePlaceholder}>
+                                            <Text style={styles.productIcon}>
+                                                ◇
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.upcomingInfo}>
+                                            <Text style={styles.purchaseName}>
+                                                {item.name}
+                                            </Text>
+
+                                            <Text style={styles.purchaseDate}>
+                                                {new Date(
+                                                    `${item.plannedDate}T00:00:00`
+                                                ).toLocaleDateString('en-US', {
+                                                    month: 'long',
+                                                    day: 'numeric',
+                                                    year: 'numeric',
+                                                })}
+                                            </Text>
+
+                                            <Text style={styles.purchasePrice}>
+                                                {formatMoney(item.estimatedPrice)}
+                                            </Text>
+
+                                            <View style={styles.purchaseProgressTrack}>
+                                                <View
+                                                    style={[
+                                                        styles.purchaseProgressFill,
+                                                        { width: `${progress}%` },
+                                                    ]}
+                                                />
+                                            </View>
+
+                                            <Text style={styles.savedText}>
+                                                {formatMoney(item.savedAmount)} saved · {Math.round(progress)}%
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.priorityContainer}>
+                                            <Text
+                                                style={[
+                                                    styles.priorityText,
+                                                    item.priority === 'High'
+                                                        ? styles.highPriority
+                                                        : item.priority === 'Medium'
+                                                            ? styles.mediumPriority
+                                                            : styles.lowPriority,
+                                                ]}
+                                            >
+                                                {item.priority}
+                                            </Text>
+                                        </View>
+                                    </Pressable>
+                                );
+                            })
+                        ) : (
+                            <View style={styles.emptyCard}>
+                                <Text style={styles.emptyText}>
+                                    No upcoming purchases yet. Plan a purchase to see it here.
+                                </Text>
+                            </View>
+                        )}
                     </View>
 
                     {/* RECENT ACTIVITY */}
@@ -540,45 +661,71 @@ export default function HomeScreen() {
                                     Your latest updates
                                 </Text>
                             </View>
+
+                            {activities.length > 0 && (
+                                <Pressable
+                                    onPress={() => router.push('/activity-history')}
+                                    hitSlop={10}
+                                >
+                                    <Text style={styles.viewAllText}>
+                                        View all →
+                                    </Text>
+                                </Pressable>
+                            )}
                         </View>
 
                         <View style={styles.activityCard}>
-                            {recentActivities.map((activity, index) => (
-                                <View
-                                    key={activity.id}
-                                    style={[
-                                        styles.activityItem,
-                                        index !== recentActivities.length - 1 &&
-                                            styles.activityBorder,
-                                    ]}
-                                >
-                                    <View style={styles.activityIcon}>
-                                        <Text style={styles.activityIconText}>
-                                            ✓
-                                        </Text>
-                                    </View>
+                            {recentActivities.length > 0 ? (
+                                recentActivities.map((activity, index) => {
+                                    const activityAmount =
+                                        formatActivityAmount(activity);
 
-                                    <View style={styles.activityInfo}>
-                                        <Text style={styles.activityTitle}>
-                                            {activity.title}
-                                        </Text>
+                                    return (
+                                        <View
+                                            key={activity.id}
+                                            style={[
+                                                styles.activityItem,
+                                                index !== recentActivities.length - 1 &&
+                                                    styles.activityBorder,
+                                            ]}
+                                        >
+                                            <View style={styles.activityIcon}>
+                                                <Text style={styles.activityIconText}>
+                                                    ✓
+                                                </Text>
+                                            </View>
 
-                                        <Text style={styles.activityDescription}>
-                                            {activity.description}
-                                        </Text>
-                                    </View>
+                                            <View style={styles.activityInfo}>
+                                                <Text style={styles.activityTitle}>
+                                                    {activity.type}
+                                                </Text>
 
-                                    <View style={styles.activityRight}>
-                                        <Text style={styles.activityAmount}>
-                                            {activity.amount}
-                                        </Text>
+                                                <Text style={styles.activityDescription}>
+                                                    {activity.purchaseName}
+                                                </Text>
+                                            </View>
 
-                                        <Text style={styles.activityDate}>
-                                            {activity.date}
-                                        </Text>
-                                    </View>
+                                            <View style={styles.activityRight}>
+                                                {activityAmount !== null && (
+                                                    <Text style={styles.activityAmount}>
+                                                        {activityAmount}
+                                                    </Text>
+                                                )}
+
+                                                <Text style={styles.activityDate}>
+                                                    {formatActivityDate(activity.createdAt)}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    );
+                                })
+                            ) : (
+                                <View style={styles.activityEmpty}>
+                                    <Text style={styles.emptyText}>
+                                        Your recent activity will appear here.
+                                    </Text>
                                 </View>
-                            ))}
+                            )}
                         </View>
                     </View>
                 </ScrollView>
@@ -622,7 +769,7 @@ const styles = StyleSheet.create({
 
     scrollContent: {
         paddingHorizontal: 20,
-        paddingTop: 18,
+        paddingTop: 28,
         paddingBottom: 20,
     },
 
@@ -910,6 +1057,7 @@ const styles = StyleSheet.create({
         color: COLORS.grey,
         fontSize: 12,
         textAlign: 'center',
+        lineHeight: 20,
     },
 
     purchaseInfo: {
@@ -1014,6 +1162,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#49402D',
     },
 
+    lowPriority: {
+        color: '#9BC9A5',
+        backgroundColor: '#293D30',
+    },
+
     activityCard: {
         backgroundColor: COLORS.card,
         borderRadius: 16,
@@ -1077,6 +1230,10 @@ const styles = StyleSheet.create({
     activityDate: {
         color: COLORS.muted,
         fontSize: 9,
+    },
+
+    activityEmpty: {
+        paddingVertical: 20,
     },
 
     bottomContainer: {

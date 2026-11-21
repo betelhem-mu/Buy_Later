@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import {
     Alert,
+    Image,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -89,7 +90,6 @@ export default function AuthScreen() {
         setLoading(true);
 
         try {
-            // Give the screen time to display the loading state.
             await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
             if (isLogin) {
@@ -135,9 +135,11 @@ export default function AuthScreen() {
                     {/* APP BRAND */}
 
                     <View style={styles.brandContainer}>
-                        <View style={styles.logo}>
-                            <Text style={styles.logoText}>B</Text>
-                        </View>
+                        <Image
+                            source={require('../../../assets/images/buylater-logo.png')}
+                            style={styles.logo}
+                            resizeMode="contain"
+                        />
 
                         <Text style={styles.appName}>BuyLater</Text>
 
@@ -329,17 +331,8 @@ const styles = StyleSheet.create({
         marginBottom: 40,
     },
     logo: {
-        width: 65,
-        height: 65,
-        borderRadius: 20,
-        backgroundColor: COLORS.gold,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    logoText: {
-        fontSize: 34,
-        fontWeight: 'bold',
-        color: COLORS.background,
+        width: 85,
+        height: 85,
     },
     appName: {
         fontSize: 27,

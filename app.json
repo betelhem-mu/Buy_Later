@@ -1,42 +1,42 @@
+
 {
   "expo": {
     "name": "Buy_Later",
     "slug": "Buy_Later",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/buylater-logo.png",
     "scheme": "buylater",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/buylater-logo.png"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#101114",
+        "foregroundImage": "./assets/images/buylater-logo.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.betty_mu.Buy_Later"
     },
     "web": {
       "output": "server",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/buylater-logo.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#101114",
+          "image": "./assets/images/buylater-logo.png",
+          "imageWidth": 240
         }
       ],
       "@react-native-community/datetimepicker",
       "expo-notifications",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,7 +1,6 @@
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
 
-// Control how notifications appear while the app is open
+import * as Notifications from 'expo-notifications';
+
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
         shouldShowBanner: true,
@@ -11,35 +10,27 @@ Notifications.setNotificationHandler({
     }),
 });
 
-// Ask the user for notification permission
 export async function requestNotificationPermission(): Promise<boolean> {
-    const { status: existingStatus } =
-        await Notifications.getPermissionsAsync();
+    try {
+        const { status: existingStatus } =
+            await Notifications.getPermissionsAsync();
 
-    let finalStatus = existingStatus;
+        let finalStatus = existingStatus;
 
-    if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
+        if (existingStatus !== 'granted') {
+            const { status } =
+                await Notifications.requestPermissionsAsync();
+
+            finalStatus = status;
+        }
+
+        return finalStatus === 'granted';
+    } catch (error) {
+        console.error('Error requesting notification permission:', error);
+        throw error;
     }
-
-    if (finalStatus !== 'granted') {
-        return false;
-    }
-
-    // Set up the Android notification channel
-    if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('purchase-reminders', {
-            name: 'Purchase Reminders',
-            importance: Notifications.AndroidImportance.HIGH,
-            sound: 'default',
-        });
-    }
-
-    return true;
 }
 
-// Schedule one purchase reminder
 export async function schedulePurchaseReminder(
     purchaseId: string,
     purchaseName: string,
@@ -52,7 +43,6 @@ export async function schedulePurchaseReminder(
             return null;
         }
 
-        // Do not schedule notifications for past dates
         if (reminderDate.getTime() <= Date.now()) {
             return null;
         }
@@ -70,7 +60,6 @@ export async function schedulePurchaseReminder(
                 trigger: {
                     type: Notifications.SchedulableTriggerInputTypes.DATE,
                     date: reminderDate,
-                    channelId: 'purchase-reminders',
                 },
             });
 
@@ -81,7 +70,6 @@ export async function schedulePurchaseReminder(
     }
 }
 
-// Cancel one scheduled notification
 export async function cancelPurchaseReminder(
     notificationId: string
 ): Promise<void> {
@@ -92,7 +80,6 @@ export async function cancelPurchaseReminder(
     }
 }
 
-// Cancel all reminders belonging to one purchase
 export async function cancelAllPurchaseReminders(
     notificationIds: string[]
 ): Promise<void> {
@@ -107,7 +94,6 @@ export async function cancelAllPurchaseReminders(
     }
 }
 
-// Schedule reminders every 10 days until the planned month ends
 export async function schedulePurchaseReminders(
     purchaseId: string,
     purchaseName: string,
@@ -124,12 +110,9 @@ export async function schedulePurchaseReminders(
         const creationDate = new Date(createdAt);
 
         const [year, month, day] = plannedDate
-             .slice(0, 10)
-             .split('-')
-             .map(Number);
-
-        const plannedMonthEnd = new Date(year, month, 0);
-        plannedMonthEnd.setHours(9, 0, 0, 0);
+            .slice(0, 10)
+            .split('-')
+            .map(Number);
 
         if (
             Number.isNaN(creationDate.getTime()) ||
@@ -142,15 +125,16 @@ export async function schedulePurchaseReminders(
             return [];
         }
 
+        const plannedMonthEnd = new Date(year, month, 0);
+        plannedMonthEnd.setHours(9, 0, 0, 0);
+
         const reminderDate = new Date(creationDate);
 
-        // First reminder is 10 days after creation
         reminderDate.setDate(reminderDate.getDate() + 10);
         reminderDate.setHours(9, 0, 0, 0);
 
         const notificationIds: string[] = [];
 
-        // Continue scheduling every 10 days
         while (reminderDate <= plannedMonthEnd) {
             const notificationId = await schedulePurchaseReminder(
                 purchaseId,
@@ -172,7 +156,6 @@ export async function schedulePurchaseReminders(
     }
 }
 
-// Schedule an overdue notification for the first day of the next month
 export async function scheduleOverdueNotification(
     purchaseId: string,
     purchaseName: string,
@@ -185,10 +168,11 @@ export async function scheduleOverdueNotification(
             return null;
         }
 
-       const [year, month, day] = plannedDate
-           .slice(0, 10)
-           .split('-')
-           .map(Number);
+        const [year, month, day] = plannedDate
+            .slice(0, 10)
+            .split('-')
+            .map(Number);
+
         if (
             !year ||
             !month ||
@@ -199,13 +183,9 @@ export async function scheduleOverdueNotification(
             return null;
         }
 
-        // First day of the month after the planned month
         const overdueDate = new Date(year, month, 1);
-
-        // Notification time: 9:00 AM
         overdueDate.setHours(9, 0, 0, 0);
 
-        // Do not schedule a notification for a past date
         if (overdueDate.getTime() <= Date.now()) {
             return null;
         }
@@ -224,7 +204,6 @@ export async function scheduleOverdueNotification(
                 trigger: {
                     type: Notifications.SchedulableTriggerInputTypes.DATE,
                     date: overdueDate,
-                    channelId: 'purchase-reminders',
                 },
             });
 
@@ -235,7 +214,6 @@ export async function scheduleOverdueNotification(
     }
 }
 
-// Schedule all notifications for one purchase
 export async function scheduleAllPurchaseNotifications(
     purchaseId: string,
     purchaseName: string,
@@ -265,7 +243,6 @@ export async function scheduleAllPurchaseNotifications(
     };
 }
 
-// Cancel all notifications for one purchase
 export async function cancelAllPurchaseNotifications(
     reminderNotificationIds: string[] = [],
     overdueNotificationId?: string

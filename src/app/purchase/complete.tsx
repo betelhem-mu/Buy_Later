@@ -29,6 +29,8 @@ import {
     cancelAllPurchaseNotifications,
 } from '../../services/notifications/notificationService';
 
+import { addActivity } from '../../services/activityStorage';
+
 import type { Purchase } from '../../types/purchase';
 
 const COLORS = {
@@ -171,6 +173,23 @@ export default function CompletePurchaseScreen() {
                 purchase.reminderNotificationIds ?? [],
                 purchase.overdueNotificationId
             );
+
+            // Record the completed purchase in Recent Activity.
+            try {
+                await addActivity({
+                    type: 'Purchase completed',
+                    purchaseId: purchase.id,
+                    purchaseName: purchase.name,
+                    ...(parsedPrice !== undefined
+                        ? { amount: parsedPrice }
+                        : {}),
+                });
+            } catch (activityError) {
+                console.error(
+                    'Could not record completion activity:',
+                    activityError
+                );
+            }
 
             Alert.alert(
                 'Purchase Completed',

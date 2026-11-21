@@ -1,4 +1,5 @@
 
+import { addActivity } from '../../services/activityStorage';
 import { useCallback, useState } from 'react';
 import {
     View,
@@ -116,6 +117,20 @@ export default function PurchaseDetailsScreen() {
                                 JSON.stringify(updatedPurchases)
                             );
 
+                            // Record the cancellation in Recent Activity
+                            try {
+                                await addActivity({
+                                    type: 'Purchase cancelled',
+                                    purchaseId: purchase.id,
+                                    purchaseName: purchase.name,
+                                });
+                            } catch (activityError) {
+                                console.error(
+                                    'Could not record cancellation activity:',
+                                    activityError
+                                );
+                            }
+
                             await cancelAllPurchaseNotifications(
                                 purchase.reminderNotificationIds ?? [],
                                 purchase.overdueNotificationId
@@ -179,6 +194,21 @@ export default function PurchaseDetailsScreen() {
                 STORAGE_KEY,
                 JSON.stringify(updatedPurchases)
             );
+
+            // Record the amount added in Recent Activity
+            try {
+                await addActivity({
+                    type: 'Savings updated',
+                    purchaseId: purchase.id,
+                    purchaseName: purchase.name,
+                    amount: amount,
+                });
+            } catch (activityError) {
+                console.error(
+                    'Could not record savings activity:',
+                    activityError
+                );
+            }
 
             setSavingsModalVisible(false);
             setSavingsInput('');
